@@ -1,0 +1,30 @@
+plugins {
+    id 'application'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+dependencies {
+    implementation 'com.github.oshi:oshi-core:6.6.5'
+}
+
+application {
+    mainClass = 'ru.mcs.sysmon.SystemMonitor'
+}
+
+// Собирает один portable jar со всеми зависимостями (JNA и т.д.),
+// чтобы можно было просто скопировать и запустить java -jar
+shadowJar {
+    archiveBaseName.set('sysmon')
+    archiveClassifier.set('')
+    archiveVersion.set('')
+}

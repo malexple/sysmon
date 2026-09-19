@@ -124,6 +124,6 @@ LIMIT 20;
 sysmon/
 ├── build.gradle
 ├── settings.gradle
-└── src/main/java/ru/simplecomplex/sysmon/
+└── src/main/java/ru/mcs/sysmon/
     ├── SystemMonitor.java
 ```

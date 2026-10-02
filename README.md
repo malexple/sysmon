@@ -63,8 +63,8 @@ java -jar sysmon.jar --interval=10 --out=samples/day1.csv
 
 ## Топ по CPU
 
-```
-sqlSELECT name,
+```sql
+SELECT name,
        ROUND(AVG(cpu_percent), 1) AS avg_cpu,
        ROUND(MAX(cpu_percent), 1) AS max_cpu,
        COUNT(*) AS samples
@@ -77,8 +77,8 @@ LIMIT 20;
 
 ## Топ по памяти
 
-```
-sqlSELECT name,
+```sql
+SELECT name,
        ROUND(AVG(resident_mb), 0) AS avg_mem_mb,
        ROUND(MAX(resident_mb), 0) AS max_mem_mb
 FROM this
@@ -91,8 +91,8 @@ LIMIT 20;
 
 `disk_read_kb`/`disk_write_kb` — накопительные счётчики, поэтому усреднять их по строкам нельзя (получите завышенную в разы цифру). Берём максимум на конкретный `pid`, затем суммируем по имени (на случай, если процесс за день перезапускался под разными PID):
 
-```
-sqlSELECT name,
+```sql
+SELECT name,
        SUM(max_read)  AS total_read_kb,
        SUM(max_write) AS total_write_kb
 FROM (
@@ -111,9 +111,13 @@ LIMIT 20;
 
 Если результат нужно скопировать текстом (например, чтобы обсудить с кем-то или вставить в другой инструмент) — конкатенируйте поля с явным разделителем, иначе числа сольются без пробелов и станут не читаемы:
 
-```
-sqlSELECT name || ' | ' || total_read_kb || ' | ' || total_write_kb AS row_text
-FROM (...) -- см. запрос выше
+```sql
+SELECT name || ' | ' || total_read_kb || ' | ' || total_write_kb AS row_text
+FROM (SELECT pid, name,
+           MAX(disk_read_kb)  AS max_read,
+           MAX(disk_write_kb) AS max_write
+    FROM this
+    GROUP BY pid, name)
 ORDER BY total_read_kb + total_write_kb DESC
 LIMIT 20;
 ```

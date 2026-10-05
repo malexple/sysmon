@@ -11,16 +11,17 @@ final class UiCommand {
     private UiCommand() {
     }
 
-    static int run(String[] argv) {
+    /** offerRecording: show the "Start recording" dialog right after the window opens. */
+    static int run(String[] argv, boolean offerRecording) {
         Map<String, String> o = Args.keyValues(argv);
-        Path dir = Path.of(o.getOrDefault("in", "samples"));
+        Path dir = Path.of(o.getOrDefault("in", Defaults.outDir().toString()));
         Lang lang = Lang.of(o.get("lang"));
         boolean dark = !"light".equalsIgnoreCase(o.getOrDefault("theme", "dark"));
         if (GraphicsEnvironment.isHeadless()) {
             System.err.println(lang.t("No display available for the window.", "Нет графического окружения для окна."));
             return 1;
         }
-        SysmonWindow.launch(dir, lang, dark);
+        SysmonWindow.launch(dir, lang, dark, offerRecording);
         return 0;
     }
 }

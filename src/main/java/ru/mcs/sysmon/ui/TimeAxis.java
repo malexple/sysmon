@@ -5,6 +5,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.TreeSet;
 
 final class TimeAxis {
 
@@ -39,6 +40,26 @@ final class TimeAxis {
             list.add(t);
         }
         return list.stream().mapToLong(Long::longValue).toArray();
+    }
+
+    /** Like {@link #ticks}, but with a compressed scale ticks inside squeezed gaps are dropped and gap ends are added. */
+    static long[] visibleTicks(TimeScale scale, long from, long to, int maxTicks) {
+        long[] base = ticks(from, to, maxTicks);
+        if (!scale.compressing()) {
+            return base;
+        }
+        TreeSet<Long> set = new TreeSet<>();
+        for (long t : base) {
+            if (!scale.insideGap(t)) {
+                set.add(t);
+            }
+        }
+        for (long end : scale.gapEnds()) {
+            if (end >= from && end <= to) {
+                set.add(end);
+            }
+        }
+        return set.stream().mapToLong(Long::longValue).toArray();
     }
 
     static String format(long ts, long spanMs) {

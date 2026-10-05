@@ -125,7 +125,6 @@ final class ProcessTablePanel extends JPanel {
         @Override
         public Component getTableCellRendererComponent(JTable t, Object value, boolean selected,
                                                        boolean focus, int row, int column) {
-            setBackground(null);
             super.getTableCellRendererComponent(t, value, selected, focus, row, column);
             int mc = t.convertColumnIndexToModel(column);
             if (mc == 0) {

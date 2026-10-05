@@ -6,7 +6,11 @@ import ru.mcs.sysmon.analysis.Thresholds;
 import ru.mcs.sysmon.cli.Lang;
 import ru.mcs.sysmon.model.SystemSample;
 
-import java.awt.*;
+import java.awt.BasicStroke;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.Graphics2D;
+import java.awt.Shape;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.Instant;
@@ -20,7 +24,8 @@ import java.util.function.ToIntFunction;
 
 /**
  * Three lanes (CPU, memory, disk) over the whole recording. Bar height is utilization, bar colour is the
- * saturation level; red bands mark episodes. Drag to select an interval, click to clear it.
+ * saturation level; red bands mark episodes, hatching marks gaps without data.
+ * Drag to select an interval, click to clear it.
  */
 final class TimelineStrips extends ChartBase {
 
@@ -35,8 +40,10 @@ final class TimelineStrips extends ChartBase {
 
     private final ViewModel vm;
     private final List<Lane> lanes;
-    private final long[] ts;
     private final double[] laneMax = new double[3];
+    private final List<long[]> gaps = new ArrayList<>();
+    private long[] ts = new long[0];
+    private int cachedVersion = -1;
 
     private int left;
     private int plotW;
@@ -46,18 +53,9 @@ final class TimelineStrips extends ChartBase {
     private int hoverX = -1;
     private int anchorX;
 
-    private final List<long[]> gaps = new ArrayList<>();
-
     TimelineStrips(ViewModel vm, Palette pal, Lang lang) {
         super(pal, lang);
         this.vm = vm;
-        List<SystemSample> sys = vm.recording.system();
-        this.ts = sys.stream().mapToLong(SystemSample::tsMs).toArray();
-        for (int i = 0; i + 1 < ts.length; i++) {
-            if (ts[i + 1] - ts[i] > 3 * vm.interval) {
-                gaps.add(new long[]{ts[i] + vm.interval, ts[i + 1]});
-            }
-        }
         this.lanes = List.of(
                 new Lane("CPU", Resource.CPU, SystemSample::cpuPct,
                         s -> Thresholds.cpu(s) ? 2 : (s.cpuPct() > 60 ? 1 : 0), Thresholds.CPU_PCT),
@@ -66,13 +64,6 @@ final class TimelineStrips extends ChartBase {
                 new Lane(lang.t("Disk", "Диск"), Resource.DISK, SystemSample::diskBusyPct,
                         s -> Thresholds.disk(s) ? 2 : (s.diskBusyPct() > 50 || s.diskQueue() >= 1 ? 1 : 0),
                         Thresholds.DISK_BUSY_PCT));
-        for (int i = 0; i < lanes.size(); i++) {
-            double max = 0;
-            for (SystemSample sm : sys) {
-                max = Math.max(max, lanes.get(i).value().applyAsDouble(sm));
-            }
-            laneMax[i] = max;
-        }
 
         MouseAdapter mouse = new MouseAdapter() {
             @Override
@@ -119,6 +110,28 @@ final class TimelineStrips extends ChartBase {
         return s.memTotalMb() > 0 ? 100.0 - 100.0 * s.memAvailMb() / s.memTotalMb() : 0;
     }
 
+    private void ensureCache() {
+        if (cachedVersion == vm.version) {
+            return;
+        }
+        cachedVersion = vm.version;
+        List<SystemSample> sys = vm.recording.system();
+        ts = sys.stream().mapToLong(SystemSample::tsMs).toArray();
+        for (int i = 0; i < lanes.size(); i++) {
+            double max = 0;
+            for (SystemSample sm : sys) {
+                max = Math.max(max, lanes.get(i).value().applyAsDouble(sm));
+            }
+            laneMax[i] = max;
+        }
+        gaps.clear();
+        for (int i = 0; i + 1 < ts.length; i++) {
+            if (ts[i + 1] - ts[i] > 3 * vm.interval) {
+                gaps.add(new long[]{ts[i] + vm.interval, ts[i + 1]});
+            }
+        }
+    }
+
     private void computeLayout() {
         left = s(112);
         int right = s(12);
@@ -130,18 +143,25 @@ final class TimelineStrips extends ChartBase {
     }
 
     private int xOf(long t) {
-        double fr = (t - vm.t0) / (double) Math.max(1, vm.tEnd - vm.t0);
+        TimeScale sc = vm.scale();
+        double a = sc.map(vm.t0);
+        double b = sc.map(vm.tEnd);
+        double fr = (sc.map(t) - a) / Math.max(1e-9, b - a);
         fr = Math.max(0, Math.min(1, fr));
         return left + (int) Math.round(fr * plotW);
     }
 
     private long tOf(int x) {
+        TimeScale sc = vm.scale();
+        double a = sc.map(vm.t0);
+        double b = sc.map(vm.tEnd);
         double fr = Math.max(0, Math.min(1, (x - left) / (double) Math.max(1, plotW)));
-        return vm.t0 + Math.round(fr * (vm.tEnd - vm.t0));
+        return sc.unmap(a + fr * (b - a));
     }
 
     @Override
     protected void paintChart(Graphics2D g) {
+        ensureCache();
         computeLayout();
         g.setColor(pal.chartBg);
         g.fillRect(0, 0, getWidth(), getHeight());
@@ -150,7 +170,7 @@ final class TimelineStrips extends ChartBase {
         }
         List<SystemSample> sys = vm.recording.system();
         long span = Math.max(1, vm.tEnd - vm.t0);
-        long[] ticks = TimeAxis.ticks(vm.t0, vm.tEnd, Math.max(2, plotW / s(90)));
+        long[] ticks = TimeAxis.visibleTicks(vm.scale(), vm.t0, vm.tEnd, Math.max(2, plotW / s(90)));
         int lanesBottom = top + 3 * laneH + 2 * gap;
         int bodyH = laneH - 2;
 
@@ -237,9 +257,16 @@ final class TimelineStrips extends ChartBase {
         FontMetrics fm = g.getFontMetrics();
         int axisY = lanesBottom + s(4);
         g.setColor(pal.textDim);
+        int lastRight = Integer.MIN_VALUE;
         for (long t : ticks) {
             String label = TimeAxis.format(t, span);
-            g.drawString(label, xOf(t) - fm.stringWidth(label) / 2, axisY + fm.getAscent());
+            int w = fm.stringWidth(label);
+            int x = xOf(t);
+            if (x - w / 2 < lastRight + s(6)) {
+                continue;
+            }
+            g.drawString(label, x - w / 2, axisY + fm.getAscent());
+            lastRight = x + w / 2;
         }
 
         if (vm.hasSelection()) {
@@ -259,6 +286,7 @@ final class TimelineStrips extends ChartBase {
 
     @Override
     public String getToolTipText(MouseEvent e) {
+        ensureCache();
         computeLayout();
         if (e.getX() < left || e.getX() > left + plotW || ts.length == 0) {
             return null;

@@ -1,6 +1,7 @@
 package ru.mcs.sysmon.ui;
 
 import ru.mcs.sysmon.analysis.Episode;
+import ru.mcs.sysmon.analysis.EpisodeDetector;
 import ru.mcs.sysmon.analysis.ProcessAggregator;
 import ru.mcs.sysmon.analysis.ProcessAggregator.Stats;
 import ru.mcs.sysmon.analysis.Recording;
@@ -28,8 +29,17 @@ final class Verdict {
     static String text(Recording rec, List<Episode> episodes, long from, long to, boolean whole, Lang lang) {
         List<SystemSample> sys = rec.system();
         if (whole) {
+            long interval = EpisodeDetector.medianInterval(sys);
             long span = sys.get(sys.size() - 1).tsMs() - sys.get(0).tsMs();
-            String head = f("%d %s, %s. ", sys.size(), lang.t("samples", "замеров"), duration(span, lang));
+            long recorded = sys.size() * interval;
+            String head;
+            if (span - recorded > Math.max(120_000, 3 * interval)) {
+                head = f("%d %s, %s %s %s %s. ", sys.size(), lang.t("samples", "замеров"),
+                        lang.t("recorded", "записано"), duration(recorded, lang),
+                        lang.t("of", "из"), duration(span, lang));
+            } else {
+                head = f("%d %s, %s. ", sys.size(), lang.t("samples", "замеров"), duration(span, lang));
+            }
             if (episodes.isEmpty()) {
                 return head + lang.t("No saturation episodes found. Drag over the strips to inspect an interval.",
                         "Эпизодов насыщения не найдено. Выделите мышью интервал на полосах, чтобы изучить его.");
@@ -80,7 +90,6 @@ final class Verdict {
         if (!io.isEmpty()) {
             sb.append(lang.t("Most I/O: ", "Больше всего ввода-вывода: ")).append(io).append(". ");
         }
-
         named.stream().max(Comparator.comparingDouble(Stats::rssSwingMb))
                 .filter(s -> s.rssSwingMb() >= 300)
                 .ifPresent(s -> sb.append(lang.t("Biggest memory change: ", "Сильнее всего изменилась память: "))

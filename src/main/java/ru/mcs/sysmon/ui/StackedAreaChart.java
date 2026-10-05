@@ -23,7 +23,7 @@ import java.util.NavigableMap;
 
 /**
  * Stacked area of the five biggest processes (by name) plus "other" over the selected interval,
- * for the chosen metric: CPU, memory or process I/O.
+ * for the chosen metric: CPU, memory or process I/O. Areas are broken at gaps without data.
  */
 final class StackedAreaChart extends ChartBase {
 
@@ -111,17 +111,17 @@ final class StackedAreaChart extends ChartBase {
             }
             i++;
         }
-        List<String> top = sums.entrySet().stream()
+        List<String> best = sums.entrySet().stream()
                 .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
                 .limit(TOP)
                 .map(Map.Entry::getKey)
                 .toList();
-        int k = top.size();
+        int k = best.size();
         names = new String[k + 1];
         vals = new double[k + 1][n];
         avgs = new double[k + 1];
         for (int s = 0; s < k; s++) {
-            names[s] = top.get(s);
+            names[s] = best.get(s);
         }
         names[k] = lang.t("other", "прочее");
         double max = 0;
@@ -141,14 +141,18 @@ final class StackedAreaChart extends ChartBase {
         yMax = niceMax(max);
     }
 
-    static double niceMax(double v) {
-        if (v <= 0) {
+    static double niceMax(double max) {
+        if (max <= 0) {
             return 1;
         }
-        double exp = Math.pow(10, Math.floor(Math.log10(v)));
-        double fr = v / exp;
-        double nice = fr <= 1 ? 1 : fr <= 2 ? 2 : fr <= 5 ? 5 : 10;
-        return nice * exp;
+        double exp = Math.pow(10, Math.floor(Math.log10(max)) - 1);
+        for (double m : new double[]{1, 2, 2.5, 5, 10, 20, 25, 50, 100}) {
+            double s = m * exp;
+            if (Math.ceil(max / s - 1e-9) <= 5) {
+                return s;
+            }
+        }
+        return 100 * exp;
     }
 
     private String title() {
@@ -172,7 +176,10 @@ final class StackedAreaChart extends ChartBase {
     }
 
     private double xOf(long t) {
-        return left + (t - ts[0]) * (double) plotW / Math.max(1, ts[ts.length - 1] - ts[0]);
+        TimeScale sc = vm.scale();
+        double a = sc.map(ts[0]);
+        double b = sc.map(ts[ts.length - 1]);
+        return left + (sc.map(t) - a) * plotW / Math.max(1e-9, b - a);
     }
 
     private double yOf(double v) {
@@ -214,13 +221,19 @@ final class StackedAreaChart extends ChartBase {
             g.drawString(label, left - s(6) - fm.stringWidth(label), y + fm.getAscent() / 2 - 1);
         }
         long span = ts[ts.length - 1] - ts[0];
-        for (long t : TimeAxis.ticks(ts[0], ts[ts.length - 1], Math.max(2, plotW / s(90)))) {
+        int lastRight = Integer.MIN_VALUE;
+        for (long t : TimeAxis.visibleTicks(vm.scale(), ts[0], ts[ts.length - 1], Math.max(2, plotW / s(90)))) {
             String label = TimeAxis.format(t, span);
+            int lw = fm.stringWidth(label);
             int x = (int) Math.round(xOf(t));
             g.setColor(pal.grid);
             g.drawLine(x, top, x, top + plotH);
+            if (x - lw / 2 < lastRight + s(6)) {
+                continue;
+            }
             g.setColor(pal.textDim);
-            g.drawString(label, x - fm.stringWidth(label) / 2, top + plotH + s(4) + fm.getAscent());
+            g.drawString(label, x - lw / 2, top + plotH + s(4) + fm.getAscent());
+            lastRight = x + lw / 2;
         }
 
         int n = ts.length;
@@ -296,8 +309,11 @@ final class StackedAreaChart extends ChartBase {
         if (ts.length < 2 || e.getX() < left || e.getX() > left + plotW) {
             return null;
         }
+        TimeScale sc = vm.scale();
+        double a = sc.map(ts[0]);
+        double b = sc.map(ts[ts.length - 1]);
         double fr = (e.getX() - left) / (double) Math.max(1, plotW);
-        long t = ts[0] + Math.round(fr * (ts[ts.length - 1] - ts[0]));
+        long t = sc.unmap(a + fr * (b - a));
         int i = Arrays.binarySearch(ts, t);
         if (i < 0) {
             i = -i - 1;

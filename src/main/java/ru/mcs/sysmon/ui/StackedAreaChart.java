@@ -39,6 +39,7 @@ final class StackedAreaChart extends ChartBase {
     private double[][] vals = new double[0][0];
     private double[] avgs = new double[0];
     private double yMax = 1;
+    private double step = 1;
 
     private int left;
     private int top;
@@ -138,10 +139,15 @@ final class StackedAreaChart extends ChartBase {
         for (int s = 0; s <= k; s++) {
             avgs[s] = n == 0 ? 0 : Arrays.stream(vals[s]).average().orElse(0);
         }
-        yMax = niceMax(max);
+        step = niceStep(max);
+        yMax = step * Math.max(1, Math.ceil(max / step - 1e-9));
     }
 
-    static double niceMax(double max) {
+    /**
+     * The smallest "round" step (1, 2, 2.5, 5 times a power of ten) that covers max with at most five divisions,
+     * so the axis ends just above the data: 44.7 gives 0..50 step 10, 50.4 gives 0..60 step 20.
+     */
+    static double niceStep(double max) {
         if (max <= 0) {
             return 1;
         }
@@ -169,6 +175,13 @@ final class StackedAreaChart extends ChartBase {
             case MEMORY -> v >= 1024 ? f("%.1f GB", v / 1024.0) : f("%.0f MB", v);
             case IO -> v >= 1024 ? f("%.1f MB/s", v / 1024.0) : f("%.0f KB/s", v);
         };
+    }
+
+    private String axisFmt(double v) {
+        if (metric == Metric.CPU) {
+            return step >= 1 ? f("%.0f%%", v) : f("%.1f%%", v);
+        }
+        return fmt(v);
     }
 
     private Color colorOf(int k) {
@@ -211,12 +224,13 @@ final class StackedAreaChart extends ChartBase {
 
         g.setFont(font(Font.PLAIN, 0.85f));
         FontMetrics fm = g.getFontMetrics();
-        for (int i = 0; i <= 4; i++) {
-            double v = yMax * i / 4.0;
+        int divisions = (int) Math.round(yMax / step);
+        for (int i = 0; i <= divisions; i++) {
+            double v = i * step;
             int y = (int) Math.round(yOf(v));
             g.setColor(pal.grid);
             g.drawLine(left, y, left + plotW, y);
-            String label = fmt(v);
+            String label = axisFmt(v);
             g.setColor(pal.textDim);
             g.drawString(label, left - s(6) - fm.stringWidth(label), y + fm.getAscent() / 2 - 1);
         }

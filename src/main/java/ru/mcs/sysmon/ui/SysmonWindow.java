@@ -536,7 +536,7 @@ public final class SysmonWindow {
         if (rec) {
             RecordingSession.Status st = session.status();
             text = "REC " + hms(st.elapsedMs()) + (st.plannedMs() > 0 ? " / " + hms(st.plannedMs()) : "")
-                    + " | " + size(st.bytes()) + " | " + st.samples() + " " + lang.t("samples", "замеров");
+                    + " | " + size(st.bytes()) + " | " + lang.t("samples", "замеров") + ": " + st.samples();
         } else if (viewOnly) {
             text = lang.t("Recording runs in another program - view only",
                     "Запись идёт в другой программе - только просмотр");

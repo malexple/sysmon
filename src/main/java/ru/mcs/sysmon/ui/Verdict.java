@@ -32,13 +32,14 @@ final class Verdict {
             long interval = EpisodeDetector.medianInterval(sys);
             long span = sys.get(sys.size() - 1).tsMs() - sys.get(0).tsMs();
             long recorded = sys.size() * interval;
+            String samples = lang.t("Samples", "Замеров");
             String head;
             if (span - recorded > Math.max(120_000, 3 * interval)) {
-                head = f("%d %s, %s %s %s %s. ", sys.size(), lang.t("samples", "замеров"),
+                head = f("%s: %d, %s %s %s %s. ", samples, sys.size(),
                         lang.t("recorded", "записано"), duration(recorded, lang),
                         lang.t("of", "из"), duration(span, lang));
             } else {
-                head = f("%d %s, %s. ", sys.size(), lang.t("samples", "замеров"), duration(span, lang));
+                head = f("%s: %d, %s. ", samples, sys.size(), duration(span, lang));
             }
             if (episodes.isEmpty()) {
                 return head + lang.t("No saturation episodes found. Drag over the strips to inspect an interval.",

@@ -63,6 +63,7 @@ class UiTest {
         ViewModel vm = model();
         String whole = Verdict.text(vm.recording, vm.episodes, vm.from(), vm.to(), true, new Lang(false));
         assertTrue(whole.contains("Saturation episodes: 1"), whole);
+        assertTrue(whole.startsWith("Samples: 24"), whole);
 
         String window = Verdict.text(vm.recording, vm.episodes, EP_FROM, EP_TO, false, new Lang(false));
         assertTrue(window.contains("2566"), window);
@@ -72,9 +73,10 @@ class UiTest {
     }
 
     @Test
-    void niceMaxRoundsUp() {
-        assertEquals(50, StackedAreaChart.niceMax(44.72), 1e-9);
-        assertEquals(1, StackedAreaChart.niceMax(0), 1e-9);
-        assertEquals(50000, StackedAreaChart.niceMax(26500), 1e-9);
+    void niceStepEndsTheAxisJustAboveTheData() {
+        assertEquals(10, StackedAreaChart.niceStep(44.72), 1e-9);
+        assertEquals(20, StackedAreaChart.niceStep(50.4), 1e-9);
+        assertEquals(10000, StackedAreaChart.niceStep(26500), 1e-9);
+        assertEquals(1, StackedAreaChart.niceStep(0), 1e-9);
     }
 }

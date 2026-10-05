@@ -208,3 +208,9 @@ sysmon/
 ```
 
 Tests: `./gradlew test`. The chart components are checked headless (rendered into an image); the look of the window is checked by eye.
+
+## License
+
+sysmon is released under the [MIT License](LICENSE): you may use, modify and distribute it freely as long as the copyright notice is kept.
+
+The jar bundles third-party libraries (OSHI, JNA, FlatLaf, SLF4J API) under their own licenses; they are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

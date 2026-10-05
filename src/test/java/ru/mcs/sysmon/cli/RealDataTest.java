@@ -28,25 +28,25 @@ class RealDataTest {
         assertEquals(0, rec.skippedLines());
     }
 
-//    @Test
-//    void findsOneMemoryEpisodeAndNothingElse() throws Exception {
-//        List<Episode> episodes = ReportCommand.episodes(load());
-//        assertEquals(1, episodes.size());
-//        Episode e = episodes.get(0);
-//        assertEquals(Resource.MEMORY, e.resource());
-//        assertEquals(1791216436666L, e.startMs());
-//        assertEquals(1791216472117L, e.endMs());
-//        assertEquals(40517L, e.durationMs());
-//    }
+    @Test
+    void findsOneMemoryEpisodeAndNothingElse() throws Exception {
+        List<Episode> episodes = ReportCommand.episodes(load());
+        assertEquals(1, episodes.size());
+        Episode e = episodes.get(0);
+        assertEquals(Resource.MEMORY, e.resource());
+        assertEquals(1791216436666L, e.startMs());
+        assertEquals(1791216472117L, e.endMs());
+        assertEquals(40517L, e.durationMs());
+    }
 
-//    @Test
-//    void aggregatesByName() throws Exception {
-//        Recording rec = load();
-//        List<Stats> all = ProcessAggregator.aggregate(rec.processes(), 0, Long.MAX_VALUE);
-//        Stats idea = all.stream().filter(s -> s.name().equals("idea64")).findFirst().orElseThrow();
-//        assertEquals(12.88, idea.cpuAvg(), 0.01);
-//        assertEquals(3843, idea.rssAvgMb(), 1);
-//    }
+    @Test
+    void aggregatesByName() throws Exception {
+        Recording rec = load();
+        List<Stats> all = ProcessAggregator.aggregate(rec.processes(), 0, Long.MAX_VALUE);
+        Stats idea = all.stream().filter(s -> s.name().equals("idea64")).findFirst().orElseThrow();
+        assertEquals(12.88, idea.cpuAvg(), 0.01);
+        assertEquals(3843, idea.rssAvgMb(), 1);
+    }
 
     @Test
     void reportMentionsTheEpisodeAndTheBiggestProcess() throws Exception {

@@ -19,6 +19,7 @@ public final class Main {
             int code = switch (command) {
                 case "record" -> Recorder.run(Args.parse(rest));
                 case "report" -> ReportCommand.run(rest);
+                case "ui" -> UiCommand.run(rest);
                 default -> {
                     System.err.println("Unknown command: " + command);
                     usage();
@@ -46,11 +47,16 @@ public final class Main {
                   --max-total-mb=500   delete the oldest files when the directory exceeds this
                   --duration=8h        stop automatically (s, m, h, d); default: until Ctrl+C
 
-                report - analyse recorded samples
+                report - analyse recorded samples in the console
                   --in=samples         directory with the CSV files
                   --lang=ru|en         report language; default: system language
                   --top=10             rows in the process tables
                   --file=report.txt    also save the report (UTF-8)
+
+                ui - open the charts window
+                  --in=samples         directory with the CSV files
+                  --lang=ru|en         window language; default: system language
+                  --theme=dark|light   default: dark
                 """);
     }
 }

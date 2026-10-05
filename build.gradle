@@ -15,16 +15,24 @@ java {
 
 dependencies {
     implementation 'com.github.oshi:oshi-core:6.6.5'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.3'
 }
 
 application {
-    mainClass = 'ru.mcs.sysmon.SystemMonitor'
+    mainClass = 'ru.mcs.sysmon.cli.Main'
 }
 
-// Собирает один portable jar со всеми зависимостями (JNA и т.д.),
-// чтобы можно было просто скопировать и запустить java -jar
+test {
+    useJUnitPlatform()
+}
+
 shadowJar {
     archiveBaseName.set('sysmon')
     archiveClassifier.set('')
     archiveVersion.set('')
+}
+
+wrapper {
+    gradleVersion = '8.11.1'
+    distributionType = Wrapper.DistributionType.BIN
 }

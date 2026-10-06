@@ -29,7 +29,7 @@ By default data is written to and read from the `samples` directory. You can ope
 
 ## Requirements
 
-- To run: Java 21 or newer. To build the jar: Gradle 8.11.1+ (`./gradlew`, JDK 21 as the toolchain).
+- To run: Java 17 or newer. To build the jar: Gradle 8.11.1+ (`./gradlew`, JDK 17 as the toolchain).
 - Designed for Windows 10/11. The data library (OSHI) is cross-platform, but other systems are untested.
 - No administrator rights: sysmon only reads system counters and writes files into its own directory.
 

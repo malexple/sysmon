@@ -20,8 +20,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** Per-process table (grouped by name) for the selected interval; cells are shaded by their share of the column maximum. */
+/**
+ * Per-process table (grouped by name) for the selected interval; cells are shaded by their share of the
+ * column maximum. Read and write speeds are separate columns, in MB/s.
+ */
 final class ProcessTablePanel extends JPanel {
+
+    private static final int COLUMNS = 7;
 
     private final ViewModel vm;
     private final Palette pal;
@@ -34,7 +39,8 @@ final class ProcessTablePanel extends JPanel {
         this.pal = pal;
         this.model = new StatsModel(new String[]{
                 lang.t("Process", "Процесс"), "CPU avg %", "CPU max %", "RSS avg MB",
-                lang.t("RSS swing MB", "RSS размах МБ"), lang.t("I/O avg KB/s", "Ввод-вывод КБ/с")});
+                lang.t("RSS swing MB", "RSS размах МБ"),
+                lang.t("Read MB/s", "Чтение МБ/с"), lang.t("Write MB/s", "Запись МБ/с")});
         this.table = new JTable(model);
         table.setAutoCreateRowSorter(true);
         table.setFillsViewportHeight(true);
@@ -62,7 +68,7 @@ final class ProcessTablePanel extends JPanel {
     private static final class StatsModel extends AbstractTableModel {
         private final String[] columns;
         private List<Stats> rows = new ArrayList<>();
-        private final double[] columnMax = new double[6];
+        private final double[] columnMax = new double[COLUMNS];
 
         StatsModel(String[] columns) {
             this.columns = columns;
@@ -90,7 +96,8 @@ final class ProcessTablePanel extends JPanel {
                 case 2 -> s.cpuMax();
                 case 3 -> s.rssAvgMb();
                 case 4 -> s.rssSwingMb();
-                default -> s.ioAvgKbps();
+                case 5 -> s.readAvgKbps() / 1024.0;
+                default -> s.writeAvgKbps() / 1024.0;
             };
         }
 
@@ -125,6 +132,7 @@ final class ProcessTablePanel extends JPanel {
         @Override
         public Component getTableCellRendererComponent(JTable t, Object value, boolean selected,
                                                        boolean focus, int row, int column) {
+            setBackground(null);
             super.getTableCellRendererComponent(t, value, selected, focus, row, column);
             int mc = t.convertColumnIndexToModel(column);
             if (mc == 0) {
@@ -133,7 +141,7 @@ final class ProcessTablePanel extends JPanel {
             }
             double v = ((Number) value).doubleValue();
             setHorizontalAlignment(RIGHT);
-            setText(String.format(Locale.ROOT, mc <= 2 ? "%.1f" : "%.0f", v));
+            setText(String.format(Locale.ROOT, mc <= 2 ? "%.1f" : mc <= 4 ? "%.0f" : "%.2f", v));
             if (!selected) {
                 double max = model.max(mc);
                 setBackground(Palette.blend(t.getBackground(), pal.accent, max > 0 ? 0.5 * v / max : 0));

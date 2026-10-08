@@ -15,6 +15,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
 
 /** One short paragraph that says what happened in the whole recording or in the selected interval. */
@@ -22,6 +23,8 @@ final class Verdict {
 
     private static final DateTimeFormatter TIME =
             DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
+    /** A process is named as a reader or writer only above this speed (1 MB/s). */
+    private static final double IO_MENTION_KBPS = 1024;
 
     private Verdict() {
     }
@@ -84,18 +87,24 @@ final class Verdict {
         if (!cpu.isEmpty()) {
             sb.append(lang.t("Most CPU: ", "Больше всего CPU: ")).append(cpu).append(". ");
         }
-        String io = named.stream().filter(s -> s.ioAvgKbps() >= 1000)
-                .sorted(Comparator.comparingDouble(Stats::ioAvgKbps).reversed()).limit(2)
-                .map(s -> f("%s %.1f MB/s", s.name(), s.ioAvgKbps() / 1024.0))
-                .collect(Collectors.joining(", "));
-        if (!io.isEmpty()) {
-            sb.append(lang.t("Most I/O: ", "Больше всего ввода-вывода: ")).append(io).append(". ");
-        }
+        appendTop(sb, named, Stats::readAvgKbps, lang.t("Most reads: ", "Больше всего чтения: "), lang);
+        appendTop(sb, named, Stats::writeAvgKbps, lang.t("Most writes: ", "Больше всего записи: "), lang);
         named.stream().max(Comparator.comparingDouble(Stats::rssSwingMb))
                 .filter(s -> s.rssSwingMb() >= 300)
                 .ifPresent(s -> sb.append(lang.t("Biggest memory change: ", "Сильнее всего изменилась память: "))
                         .append(f("%s %.0f MB", s.name(), s.rssSwingMb())).append(". "));
         return sb.toString().trim();
+    }
+
+    private static void appendTop(StringBuilder sb, List<Stats> named, ToDoubleFunction<Stats> speedKbps,
+                                  String label, Lang lang) {
+        String top = named.stream().filter(s -> speedKbps.applyAsDouble(s) >= IO_MENTION_KBPS)
+                .sorted(Comparator.comparingDouble(speedKbps).reversed()).limit(2)
+                .map(s -> f("%s %.1f %s", s.name(), speedKbps.applyAsDouble(s) / 1024.0, lang.t("MB/s", "МБ/с")))
+                .collect(Collectors.joining(", "));
+        if (!top.isEmpty()) {
+            sb.append(label).append(top).append(". ");
+        }
     }
 
     private static String resourceName(Resource r, Lang lang) {

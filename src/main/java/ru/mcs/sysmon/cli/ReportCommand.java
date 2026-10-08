@@ -2,6 +2,7 @@ package ru.mcs.sysmon.cli;
 
 import ru.mcs.sysmon.analysis.Episode;
 import ru.mcs.sysmon.analysis.EpisodeDetector;
+import ru.mcs.sysmon.analysis.Episodes;
 import ru.mcs.sysmon.analysis.ProcessAggregator;
 import ru.mcs.sysmon.analysis.ProcessAggregator.Stats;
 import ru.mcs.sysmon.analysis.Recording;
@@ -36,7 +37,7 @@ final class ReportCommand {
 
     static int run(String[] argv) throws IOException {
         Map<String, String> o = Args.keyValues(argv);
-        Path dir = Path.of(o.getOrDefault("in", "samples"));
+        Path dir = Path.of(o.getOrDefault("in", Defaults.outDir().toString()));
         Lang lang = Lang.of(o.get("lang"));
         int top = Integer.parseInt(o.getOrDefault("top", "10"));
         if (!Files.isDirectory(dir)) {
@@ -57,13 +58,7 @@ final class ReportCommand {
     }
 
     static List<Episode> episodes(Recording rec) {
-        List<SystemSample> s = rec.system();
-        List<Episode> all = new ArrayList<>();
-        all.addAll(EpisodeDetector.detect(s, Resource.CPU, Thresholds::cpu, Thresholds.MIN_EPISODE_MS, Thresholds.MERGE_GAP_MS));
-        all.addAll(EpisodeDetector.detect(s, Resource.MEMORY, Thresholds::memory, Thresholds.MIN_EPISODE_MS, Thresholds.MERGE_GAP_MS));
-        all.addAll(EpisodeDetector.detect(s, Resource.DISK, Thresholds::disk, Thresholds.MIN_EPISODE_MS, Thresholds.MERGE_GAP_MS));
-        all.sort(Comparator.comparingLong(Episode::startMs));
-        return all;
+        return Episodes.detectAll(rec.system());
     }
 
     static String render(Recording rec, Lang lang, int top) {
@@ -84,15 +79,16 @@ final class ReportCommand {
 
         sb.append('\n').append(lang.t("== Machine (USE) ==", "== Машина (USE) ==")).append('\n');
         sb.append(f("%-26s %10s %10s %10s%n", "", "avg", "p95", "max"));
-        stat(sb, lang.t("CPU, %", "CPU, %"), sys, SystemSample::cpuPct);
-        stat(sb, lang.t("Memory used, %", "Память занята, %"), sys, s -> 100.0 - 100.0 * s.memAvailMb() / s.memTotalMb());
+        stat(sb, lang.t("CPU, %", "CPU, %"), sys, SystemSample::cpuPct, "%10.1f");
+        stat(sb, lang.t("Memory used, %", "Память занята, %"), sys,
+                s -> 100.0 - 100.0 * s.memAvailMb() / s.memTotalMb(), "%10.1f");
         stat(sb, lang.t("Commit, % of limit", "Commit, % от лимита"), sys,
-                s -> s.commitLimitMb() > 0 ? 100.0 * s.commitUsedMb() / s.commitLimitMb() : 0);
-        stat(sb, lang.t("Page-ins/s", "Page-in в секунду"), sys, SystemSample::pagesInPs);
-        stat(sb, lang.t("Disk busy, %", "Диск занят, %"), sys, SystemSample::diskBusyPct);
-        stat(sb, lang.t("Disk queue", "Очередь диска"), sys, SystemSample::diskQueue);
-        stat(sb, lang.t("Disk read, KB/s", "Чтение диска, КБ/с"), sys, SystemSample::diskReadKbps);
-        stat(sb, lang.t("Disk write, KB/s", "Запись диска, КБ/с"), sys, SystemSample::diskWriteKbps);
+                s -> s.commitLimitMb() > 0 ? 100.0 * s.commitUsedMb() / s.commitLimitMb() : 0, "%10.1f");
+        stat(sb, lang.t("Page-ins/s", "Page-in в секунду"), sys, SystemSample::pagesInPs, "%10.1f");
+        stat(sb, lang.t("Disk busy, %", "Диск занят, %"), sys, SystemSample::diskBusyPct, "%10.1f");
+        stat(sb, lang.t("Disk queue", "Очередь диска"), sys, SystemSample::diskQueue, "%10.1f");
+        stat(sb, lang.t("Disk read, MB/s", "Чтение диска, МБ/с"), sys, s -> s.diskReadKbps() / 1024.0, "%10.2f");
+        stat(sb, lang.t("Disk write, MB/s", "Запись диска, МБ/с"), sys, s -> s.diskWriteKbps() / 1024.0, "%10.2f");
 
         sb.append('\n').append(lang.t("== Saturation episodes ==", "== Эпизоды насыщения ==")).append('\n');
         sb.append(f(lang.t("Thresholds: CPU > %.0f%%; memory: free < %.0f%% or page-ins > %.0f/s or commit > %.0f%%; disk: busy > %.0f%% or queue >= %.0f; min %d s%n",
@@ -112,7 +108,7 @@ final class ReportCommand {
             Comparator<Stats> order = switch (e.resource()) {
                 case CPU -> Comparator.comparingDouble(Stats::cpuAvg).reversed();
                 case MEMORY -> Comparator.comparingDouble(Stats::rssSwingMb).reversed();
-                case DISK -> Comparator.comparingDouble(Stats::ioAvgKbps).reversed();
+                case DISK -> Comparator.comparingDouble((Stats s) -> s.readAvgKbps() + s.writeAvgKbps()).reversed();
             };
             stats.sort(order);
             table(sb, lang, stats, 5, "  ");
@@ -126,8 +122,8 @@ final class ReportCommand {
         sb.append('\n').append(lang.t("== Top processes by memory ==", "== Топ процессов по памяти ==")).append('\n');
         table(sb, lang, all, top, "");
         sb.append('\n').append(lang.t(
-                "Note: process I/O counts all I/O of the process (files, network, devices), not only disk; use the machine disk rows for disk load.",
-                "Примечание: ввод-вывод процесса включает файлы, сеть и устройства, а не только диск; нагрузку на диск смотрите по строкам машины.")).append('\n');
+                "Note: process reads and writes count all I/O of the process (files, network, devices), not only disk; use the machine disk rows for disk load.",
+                "Примечание: чтение и запись процесса включают весь его ввод-вывод (файлы, сеть, устройства), а не только диск; нагрузку на диск смотрите по строкам машины.")).append('\n');
         return sb.toString();
     }
 
@@ -140,11 +136,11 @@ final class ReportCommand {
                     lang.t("free min", "свободно мин"), min(s, x -> (double) x.memAvailMb()),
                     lang.t("page-ins max", "page-in макс"), max(s, SystemSample::pagesInPs),
                     lang.t("max", "макс"), max(s, x -> x.commitLimitMb() > 0 ? 100.0 * x.commitUsedMb() / x.commitLimitMb() : 0));
-            case DISK -> f("%s %.0f%%, %s %.1f, %s %.0f KB/s, %s %.0f KB/s",
+            case DISK -> f("%s %.0f%%, %s %.1f, %s %.2f MB/s, %s %.2f MB/s",
                     lang.t("busy max", "занят макс"), max(s, SystemSample::diskBusyPct),
                     lang.t("queue max", "очередь макс"), max(s, SystemSample::diskQueue),
-                    lang.t("read max", "чтение макс"), max(s, SystemSample::diskReadKbps),
-                    lang.t("write max", "запись макс"), max(s, SystemSample::diskWriteKbps));
+                    lang.t("read max", "чтение макс"), max(s, x -> x.diskReadKbps() / 1024.0),
+                    lang.t("write max", "запись макс"), max(s, x -> x.diskWriteKbps() / 1024.0));
         };
     }
 
@@ -157,20 +153,24 @@ final class ReportCommand {
     }
 
     private static void table(StringBuilder sb, Lang lang, List<Stats> rows, int n, String indent) {
-        sb.append(indent).append(f("%-24s %8s %8s %10s %10s %10s%n", lang.t("process", "процесс"),
-                "CPU avg%", "CPU max%", "RSS avg MB", lang.t("RSS swing", "RSS размах"), "IO KB/s"));
+        sb.append(indent).append(f("%-24s %8s %8s %10s %12s %13s %13s%n", lang.t("process", "процесс"),
+                "CPU avg%", "CPU max%", "RSS avg MB", lang.t("RSS swing", "RSS размах"),
+                lang.t("Read MB/s", "Чтение МБ/с"), lang.t("Write MB/s", "Запись МБ/с")));
         for (Stats s : rows.subList(0, Math.min(n, rows.size()))) {
             String name = s.name().length() > 24 ? s.name().substring(0, 24) : s.name();
-            sb.append(indent).append(f("%-24s %8.1f %8.1f %10.0f %10.0f %10.0f%n", name,
-                    s.cpuAvg(), s.cpuMax(), s.rssAvgMb(), s.rssSwingMb(), s.ioAvgKbps()));
+            sb.append(indent).append(f("%-24s %8.1f %8.1f %10.0f %12.0f %13.2f %13.2f%n", name,
+                    s.cpuAvg(), s.cpuMax(), s.rssAvgMb(), s.rssSwingMb(),
+                    s.readAvgKbps() / 1024.0, s.writeAvgKbps() / 1024.0));
         }
     }
 
-    private static void stat(StringBuilder sb, String label, List<SystemSample> sys, ToDoubleFunction<SystemSample> fn) {
+    private static void stat(StringBuilder sb, String label, List<SystemSample> sys,
+                             ToDoubleFunction<SystemSample> fn, String numberFormat) {
         double[] v = sys.stream().mapToDouble(fn).sorted().toArray();
         double avg = Arrays.stream(v).average().orElse(0);
         int idx = Math.max(0, Math.min(v.length - 1, (int) Math.ceil(0.95 * v.length) - 1));
-        sb.append(f("%-26s %10.1f %10.1f %10.1f%n", label, avg, v[idx], v[v.length - 1]));
+        sb.append(f("%-26s " + numberFormat + " " + numberFormat + " " + numberFormat + "%n",
+                label, avg, v[idx], v[v.length - 1]));
     }
 
     private static double max(List<SystemSample> s, ToDoubleFunction<SystemSample> fn) {

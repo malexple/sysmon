@@ -19,13 +19,15 @@ For every resource, look at three things (Brendan Gregg's USE method): **utiliza
 ## Quick start
 
 ```bash
-./gradlew shadowJar                                  # builds build/libs/sysmon.jar
-java -jar build/libs/sysmon.jar record --duration=8h # record for 8 hours (Ctrl+C stops earlier)
-java -jar build/libs/sysmon.jar report               # console report
-java -jar build/libs/sysmon.jar ui                   # charts window
+./gradlew shadowJar                                             # builds build/libs/sysmon-<version>.jar
+java -jar build/libs/sysmon-<version>.jar                       # window with the "Start recording" dialog
+java -jar build/libs/sysmon-<version>.jar record --duration=8h  # record for 8 hours from the console (Ctrl+C stops earlier)
+java -jar build/libs/sysmon-<version>.jar report                # console report
+java -jar build/libs/sysmon-<version>.jar ui                    # window on recorded data
+java -jar build/libs/sysmon-<version>.jar --version
 ```
 
-By default data is written to and read from the `samples` directory. You can open the window while recording is still running (enable "Live mode").
+In the examples below `sysmon.jar` stands for your `sysmon-<version>.jar`. By default data is written to and read from `%USERPROFILE%\sysmon-samples` (`~/sysmon-samples` on other systems). You can open the window while recording is still running: "Live mode" turns on by itself when recording is started from the window.
 
 ## Requirements
 
@@ -33,11 +35,21 @@ By default data is written to and read from the `samples` directory. You can ope
 - Designed for Windows 10/11. The data library (OSHI) is cross-platform, but other systems are untested.
 - No administrator rights: sysmon only reads system counters and writes files into its own directory.
 
+## Recording from the window and the tray
+
+Running without arguments (including a double click on the `jar`) opens the window and immediately offers to start recording: duration (1, 4, 8, 12 hours or unlimited), interval and folder. Recording runs in a background thread of the same program.
+
+- The toolbar shows the state: "● REC 00:12:34 / 08:00:00 | 4.2 MB | samples: 74". Live mode turns on automatically.
+- Closing the window during recording does not stop it: the program goes to the tray, with a red dot on the icon and a tooltip with the elapsed time and data size. Icon menu: "Open window", "Stop recording", "Stop and open folder", "Exit". When recording ends (including by the timer) a notification appears. If there is no tray, closing the window asks whether to stop recording.
+- If another program is already recording into this folder (guarded by the `.recorder.lock` file), the window opens view-only and the "Start recording" button is disabled.
+
 ## The `record` command
+
+Console recording without a window, suitable for servers and automation.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--out=samples` | `samples` | directory for `system-*.csv` and `process-*.csv` |
+| `--out=<dir>` | `~/sysmon-samples` | directory for `system-*.csv` and `process-*.csv` |
 | `--interval=10` | 10 | seconds between samples |
 | `--top=25` | 25 | processes written per sample; the rest are folded into one `(other)` row |
 | `--max-file-mb=50` | 50 | start a new file at this size |
@@ -55,7 +67,7 @@ How it works:
 
 ## Data format
 
-Numbers use a dot as the decimal separator regardless of regional settings; time is Unix milliseconds.
+Numbers use a dot as the decimal separator regardless of regional settings; time is Unix milliseconds. Speeds are stored in KB/s in the files and shown in MB/s in the window and the report.
 
 `system-*.csv` (one row per sample):
 
@@ -81,7 +93,7 @@ Numbers use a dot as the decimal separator regardless of regional settings; time
 | `procs` | how many processes the row stands for (1, more for `(other)`) |
 | `cpu_pct` | CPU load as % of the **whole machine** (0-100) |
 | `rss_mb` | working set, MB |
-| `io_read_kbps`, `io_write_kbps` | process I/O, KB/s |
+| `io_read_kbps`, `io_write_kbps` | process reads and writes, KB/s |
 
 Note: `io_*` is all I/O of the process (files, network, devices), not only disk. Use `system-*.csv` for disk load. The `Idle` process (PID 0) is not recorded: its load is the complement to 100% of the machine `cpu_pct`.
 
@@ -95,31 +107,44 @@ An episode is an interval where a resource was overloaded. Criteria:
 | Memory | free memory below 10% **or** page-ins above 500/s **or** commit above 90% of the limit |
 | Disk | busy above 80% **or** queue of at least 2 |
 
-Consecutive samples over the threshold form a run, runs closer than 30 seconds are merged, and an episode counts if it lasts at least 30 seconds (last sample minus first plus one interval). Shorter spikes are visible as red bars on the chart but are not episodes.
+Consecutive samples over the threshold form a run, runs closer than 30 seconds are merged, and an episode counts if it lasts at least 20 seconds (last sample minus first plus one interval, that is two samples in a row at a 10-second interval). Shorter spikes are visible as red bars on the chart but are not episodes.
 
 ## The `report` command
 
 ```bash
-java -jar sysmon.jar report --in=samples --lang=en --top=10 --file=report.txt
+java -jar sysmon.jar report --lang=en --top=10 --file=report.txt
 ```
 
-Prints the recording header, a machine table (average, 95th percentile, maximum), the list of episodes (time and main processes for each) and the top processes by CPU and by memory. The language defaults to the system language (`--lang=ru|en`). `--file` also saves the report as UTF-8, which is handy to attach to an IT request.
+| Option | Default | Meaning |
+|---|---|---|
+| `--in=<dir>` | `~/sysmon-samples` | directory with the CSV files |
+| `--lang=ru\|en` | system language | report language |
+| `--top=10` | 10 | rows in the process tables |
+| `--file=report.txt` | do not save | also save the report as UTF-8 |
 
-Processes are grouped **by name** (all `java` or `vivaldi` are added up). CPU and I/O are averaged over all samples of the window (a process missing from the top list was folded into `(other)`), memory is averaged over the samples where the process is present. "RSS swing" is the difference between the maximum and minimum memory of a process in the window; it helps find whose memory grew.
+Prints the recording header, a machine table (average, 95th percentile, maximum), the list of episodes (time and main processes for each) and the top processes by CPU and by memory. In the process tables reads and writes are separate columns in MB/s. `--file` is handy to attach to an IT request.
+
+Processes are grouped **by name** (all `java` or `vivaldi` are added up). CPU, reads and writes are averaged over all samples of the window (a process missing from the top list was folded into `(other)`), memory is averaged over the samples where the process is present. "RSS swing" is the difference between the maximum and minimum memory of a process in the window; it helps find whose memory grew.
 
 ## The `ui` command
 
 ```bash
-java -jar sysmon.jar ui --in=samples --lang=en --theme=dark
+java -jar sysmon.jar ui --lang=en --theme=dark
 ```
 
-- **Three strips** (CPU, memory, disk) over the whole recording. Bar height is utilization, bar colour is saturation (blue, yellow, red), red background bands are episodes. Gaps in the recording (sleep, restarts) are hatched.
-- **Interval selection:** drag across the strips; a click clears the selection. Everything below shows the selected interval.
-- **Verdict line** describes the interval in words: peaks, overlapping episodes, main processes by CPU and I/O, the biggest memory change.
+| Option | Default | Meaning |
+|---|---|---|
+| `--in=<dir>` | `~/sysmon-samples` | directory with the CSV files |
+| `--lang=ru\|en` | system language | window language |
+| `--theme=dark\|light` | `dark` | theme |
+
+- **Three strips** (CPU, memory, disk) over the whole recording. Bar height is utilization, bar colour is saturation (blue, yellow, red), red background bands are episodes. Gaps in the recording (sleep, restarts) are hatched; the "Compact gaps" switch squeezes long pauses into a narrow hatched stripe.
+- **Interval selection:** drag across the strips; a click clears the selection. Everything below shows the selected interval. The tooltip of the disk strip shows busy time, queue and read and write speeds.
+- **Verdict line** describes the interval in words: peaks, overlapping episodes, main processes by CPU, by reads and by writes, the biggest memory change. For the whole recording it also says how much time was recorded out of the total span.
 - **Episode list** on the left: a click selects the episode interval.
-- **Stacked chart** of the top 5 processes (by name) plus "other"; the metric is switchable: CPU, memory, I/O. A tooltip shows the values on hover.
-- **Process table** for the interval with heat-map shading and sorting.
-- Toolbar: open folder, reload, "Live mode" (re-reads the files every 15 seconds), light and dark theme, RU/EN language.
+- **Stacked chart** of the top 5 processes (by name) plus "other". The metric is switchable: CPU, memory, read, write (read and write in MB/s), so you can see which programs read a lot and which write a lot. A tooltip shows the values on hover.
+- **Process table** for the interval with heat-map shading and sorting. Read and write are separate columns in MB/s.
+- Toolbar: "Start recording", "Stop", open folder, reload, "Live mode" (re-reads the files every 15 seconds without rebuilding the window: sorting and dividers are kept), "Compact gaps", light and dark theme, RU/EN language.
 
 ## Example finding
 
@@ -128,11 +153,12 @@ A recording on a developer laptop: a project build ran at 20:18-20:20. The windo
 ## Limitations
 
 - There is no direct CPU run-queue counter; CPU saturation is approximated by high load.
-- Process I/O is not disk I/O (see above). Disk busy time and queue come from Windows counters through OSHI; on a given machine it is worth checking them under load (copy a large file and see whether `disk_busy_pct` and `disk_queue` rise).
+- Process reads and writes are not disk I/O (see above). Disk busy time and queue come from Windows counters through OSHI; on a given machine it is worth checking them under load (copy a large file and see whether `disk_busy_pct` and `disk_queue` rise).
 - Small processes end up in `(other)`: raise `--top` for a more detailed view.
 - `report` and `ui` read the whole directory into memory. That is fine for several days of recording; hundreds of megabytes would need streaming loading.
-- "Live mode" rebuilds the window when new data arrives, which resets table sorting.
 - The working set (`rss_mb`) includes shared pages, so the sum over processes can exceed the physical memory in use.
+- On Java 17 the Cyrillic console output of `report` may be garbled on Windows: use `--file=report.txt` (UTF-8) or `--lang=en`.
+- macOS and Linux are untested: some metrics (for example disk busy time and paging) may be unavailable there. The tray icon on Windows 11 may be in the hidden area (the "^" arrow), and notifications depend on system settings.
 
 ## Querying the CSV with SQL (optional)
 
@@ -156,7 +182,7 @@ SELECT COUNT(*) AS samples, ROUND(AVG(CAST(cpu_pct AS REAL)),1) AS avg_cpu, ROUN
 SELECT datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') AS time, ROUND(CAST(pages_in_ps AS REAL),0) AS pages_in, mem_avail_mb, ROUND(CAST(disk_busy_pct AS REAL),1) AS disk_busy, ROUND(CAST(cpu_pct AS REAL),1) AS cpu FROM this WHERE CAST(pages_in_ps AS REAL) > 500 ORDER BY CAST(ts_ms AS INTEGER)
 ```
 
-**Moments of disk load.** Samples where the disk is busy more than 50% or the queue is at least 1, with read and write speed. It is also a check of the disk counters: if you copy a large file and there is not a single row here, the counter on this machine most likely does not work.
+**Moments of disk load.** Samples where the disk is busy more than 50% or the queue is at least 1, with read and write speed (in KB/s, as in the file). It is also a check of the disk counters: if you copy a large file and there is not a single row here, the counter on this machine most likely does not work.
 
 ```sql
 SELECT datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') AS time, ROUND(CAST(disk_busy_pct AS REAL),1) AS busy, disk_queue, ROUND(CAST(disk_read_kbps AS REAL),0) AS read_kbps, ROUND(CAST(disk_write_kbps AS REAL),0) AS write_kbps FROM this WHERE CAST(disk_busy_pct AS REAL) > 50 OR CAST(disk_queue AS REAL) >= 1 ORDER BY CAST(ts_ms AS INTEGER)
@@ -170,10 +196,10 @@ SELECT name, ROUND(SUM(CAST(cpu_pct AS REAL)) / (SELECT COUNT(DISTINCT ts_ms) FR
 
 ![process.png](.assets/process.png)
 
-**Who reads and writes the most.** Average process I/O in KB/s over the whole recording (read plus write). It is divided by the number of all samples, not only those where the process made it into the top list, so rare processes are not inflated. Reminder: this is all I/O of the process, not only disk.
+**Who reads and writes the most.** Average process read and write speeds in MB/s over the whole recording, as separate columns. It is divided by the number of all samples, not only those where the process made it into the top list, so rare processes are not inflated. Reminder: this is all I/O of the process, not only disk.
 
 ```sql
-SELECT name, ROUND(SUM(CAST(io_read_kbps AS REAL) + CAST(io_write_kbps AS REAL)) / (SELECT COUNT(DISTINCT ts_ms) FROM this), 1) AS avg_io_kbps FROM this GROUP BY name ORDER BY avg_io_kbps DESC LIMIT 20
+SELECT name, ROUND(SUM(CAST(io_read_kbps AS REAL)) / 1024 / (SELECT COUNT(DISTINCT ts_ms) FROM this), 2) AS avg_read_mbps, ROUND(SUM(CAST(io_write_kbps AS REAL)) / 1024 / (SELECT COUNT(DISTINCT ts_ms) FROM this), 2) AS avg_write_mbps FROM this GROUP BY name ORDER BY avg_read_mbps + avg_write_mbps DESC LIMIT 20
 ```
 
 **Memory per process name and its growth.** The inner query first adds up the memory of all processes with the same name in every sample (all `vivaldi` tabs, all `java`), the outer one computes the average, maximum and swing (`swing_mb`) across samples. A large swing means the memory of a process grew or dropped noticeably, a hint of who is "inflating".
@@ -182,10 +208,10 @@ SELECT name, ROUND(SUM(CAST(io_read_kbps AS REAL) + CAST(io_write_kbps AS REAL))
 SELECT name, ROUND(AVG(mem),0) AS avg_mb, ROUND(MAX(mem),0) AS max_mb, ROUND(MAX(mem)-MIN(mem),0) AS swing_mb FROM (SELECT ts_ms, name, SUM(CAST(rss_mb AS REAL)) AS mem FROM this GROUP BY ts_ms, name) GROUP BY name ORDER BY avg_mb DESC LIMIT 20
 ```
 
-**Who was running during the chosen minutes.** Substitute the start and end of the interval (local time) taken from the previous queries or from an episode in the window. The result is the average CPU and I/O per process for that period, that is, what the table in the window shows, but in SQL. The time appears twice because the divisor must be counted over all samples of the interval.
+**Who was running during the chosen minutes.** Substitute the start and end of the interval (local time) taken from the previous queries or from an episode in the window. The result is the average CPU and the read and write speeds in MB/s per process for that period, that is, what the table in the window shows, but in SQL. The time appears several times because the divisor must be counted over all samples of the interval.
 
 ```sql
-SELECT name, ROUND(SUM(CAST(cpu_pct AS REAL)) / (SELECT COUNT(DISTINCT ts_ms) FROM this WHERE datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') BETWEEN '2026-10-05 20:18:57' AND '2026-10-05 20:19:48'), 2) AS avg_cpu, ROUND(SUM(CAST(io_read_kbps AS REAL) + CAST(io_write_kbps AS REAL)) / (SELECT COUNT(DISTINCT ts_ms) FROM this WHERE datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') BETWEEN '2026-10-05 20:18:57' AND '2026-10-05 20:19:48'), 0) AS avg_io_kbps FROM this WHERE datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') BETWEEN '2026-10-05 20:18:57' AND '2026-10-05 20:19:48' GROUP BY name ORDER BY avg_cpu DESC LIMIT 10
+SELECT name, ROUND(SUM(CAST(cpu_pct AS REAL)) / (SELECT COUNT(DISTINCT ts_ms) FROM this WHERE datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') BETWEEN '2026-10-05 20:18:57' AND '2026-10-05 20:19:48'), 2) AS avg_cpu, ROUND(SUM(CAST(io_read_kbps AS REAL)) / 1024 / (SELECT COUNT(DISTINCT ts_ms) FROM this WHERE datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') BETWEEN '2026-10-05 20:18:57' AND '2026-10-05 20:19:48'), 2) AS avg_read_mbps, ROUND(SUM(CAST(io_write_kbps AS REAL)) / 1024 / (SELECT COUNT(DISTINCT ts_ms) FROM this WHERE datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') BETWEEN '2026-10-05 20:18:57' AND '2026-10-05 20:19:48'), 2) AS avg_write_mbps FROM this WHERE datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') BETWEEN '2026-10-05 20:18:57' AND '2026-10-05 20:19:48' GROUP BY name ORDER BY avg_cpu DESC LIMIT 10
 ```
 
 ## Project layout
@@ -199,11 +225,12 @@ sysmon/
     │   ├── cli/        Main, record, report, ui, argument parsing, language
     │   ├── collector/  Sampler (OSHI), top-N selection
     │   ├── model/      SystemSample, ProcessSample, Sample
+    │   ├── recording/  RecordingSession: recording on a background thread (console and window)
     │   ├── storage/    CSV writer with rotation and a disk quota
     │   ├── analysis/   recording loader, saturation episodes, per-name aggregation
-    │   └── ui/         Swing + FlatLaf window, Java2D charts
+    │   └── ui/         Swing + FlatLaf window, Java2D charts, tray, recording dialog
     └── test/
-        ├── java/...    tests for rotation, top-N, episodes, report and window
+        ├── java/...    tests for rotation, top-N, episodes, recording, report and window
         └── resources/sample/  a real recording used by the tests
 ```
 

@@ -51,7 +51,7 @@ class UiTest {
     @Test
     void chartFollowsTheSelection() throws Exception {
         ViewModel vm = model();
-        StackedAreaChart chart = new StackedAreaChart(vm, Palette.DARK, new Lang(false), Metric.IO);
+        StackedAreaChart chart = new StackedAreaChart(vm, Palette.DARK, new Lang(false), Metric.READ);
         vm.select(EP_FROM, EP_TO);
         assertTrue(distinctColors(chart, 1000, 320) > 8);
         vm.clearSelection();

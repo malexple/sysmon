@@ -23,7 +23,7 @@ import java.util.NavigableMap;
 
 /**
  * Stacked area of the five biggest processes (by name) plus "other" over the selected interval,
- * for the chosen metric: CPU, memory or process I/O. Areas are broken at gaps without data.
+ * for the chosen metric: CPU, memory, read speed or write speed (MB/s). Areas are broken at gaps without data.
  */
 final class StackedAreaChart extends ChartBase {
 
@@ -79,11 +79,13 @@ final class StackedAreaChart extends ChartBase {
         repaint();
     }
 
+    /** CPU in %, memory in MB, read and write in MB/s. */
     private double value(ProcessSample p) {
         return switch (metric) {
             case CPU -> p.cpuPct();
             case MEMORY -> p.rssMb();
-            case IO -> p.readKbps() + p.writeKbps();
+            case READ -> p.readKbps() / 1024.0;
+            case WRITE -> p.writeKbps() / 1024.0;
         };
     }
 
@@ -165,23 +167,31 @@ final class StackedAreaChart extends ChartBase {
         return switch (metric) {
             case CPU -> lang.t("CPU by process, % of machine", "CPU по процессам, % от машины");
             case MEMORY -> lang.t("Memory by process (RSS), MB", "Память по процессам (RSS), МБ");
-            case IO -> lang.t("Process I/O (not only disk), KB/s", "Ввод-вывод процессов (не только диск), КБ/с");
+            case READ -> lang.t("Reads by process (not only disk), MB/s", "Чтение по процессам (не только диск), МБ/с");
+            case WRITE -> lang.t("Writes by process (not only disk), MB/s", "Запись по процессам (не только диск), МБ/с");
         };
+    }
+
+    private String mbps(double v) {
+        String unit = lang.t("MB/s", "МБ/с");
+        return (v >= 10 ? f("%.0f", v) : v >= 1 ? f("%.1f", v) : f("%.2f", v)) + " " + unit;
     }
 
     private String fmt(double v) {
         return switch (metric) {
             case CPU -> f("%.1f%%", v);
             case MEMORY -> v >= 1024 ? f("%.1f GB", v / 1024.0) : f("%.0f MB", v);
-            case IO -> v >= 1024 ? f("%.1f MB/s", v / 1024.0) : f("%.0f KB/s", v);
+            case READ, WRITE -> mbps(v);
         };
     }
 
     private String axisFmt(double v) {
-        if (metric == Metric.CPU) {
-            return step >= 1 ? f("%.0f%%", v) : f("%.1f%%", v);
-        }
-        return fmt(v);
+        return switch (metric) {
+            case CPU -> step >= 1 ? f("%.0f%%", v) : f("%.1f%%", v);
+            case MEMORY -> fmt(v);
+            case READ, WRITE -> (step >= 1 ? f("%.0f", v) : step >= 0.1 ? f("%.1f", v) : f("%.2f", v))
+                    + " " + lang.t("MB/s", "МБ/с");
+        };
     }
 
     private Color colorOf(int k) {
@@ -205,7 +215,7 @@ final class StackedAreaChart extends ChartBase {
         int h = getHeight();
         g.setColor(pal.chartBg);
         g.fillRect(0, 0, w, h);
-        left = s(64);
+        left = s(72);
         top = s(52);
         plotW = w - left - s(14);
         plotH = h - top - s(24);

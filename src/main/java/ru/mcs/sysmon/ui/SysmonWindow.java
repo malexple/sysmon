@@ -381,7 +381,8 @@ public final class SysmonWindow {
         return switch (m) {
             case CPU -> "CPU";
             case MEMORY -> lang.t("Memory", "Память");
-            case IO -> lang.t("I/O", "Ввод-вывод");
+            case READ -> lang.t("Read", "Чтение");
+            case WRITE -> lang.t("Write", "Запись");
         };
     }
 

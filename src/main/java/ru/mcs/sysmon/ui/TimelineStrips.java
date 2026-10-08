@@ -308,8 +308,9 @@ final class TimelineStrips extends ChartBase {
                 + f("CPU %.1f%%", s.cpuPct()) + "<br>"
                 + f(lang.t("Memory used %.0f%% (free %d MB), page-ins %.0f/s",
                 "Память занята %.0f%% (свободно %d МБ), page-in %.0f/с"), memUsed(s), s.memAvailMb(), s.pagesInPs()) + "<br>"
-                + f(lang.t("Disk busy %.1f%%, queue %.1f", "Диск занят %.1f%%, очередь %.1f"),
-                s.diskBusyPct(), s.diskQueue())
+                + f(lang.t("Disk busy %.1f%%, queue %.1f, read %.2f MB/s, write %.2f MB/s",
+                        "Диск занят %.1f%%, очередь %.1f, чтение %.2f МБ/с, запись %.2f МБ/с"),
+                s.diskBusyPct(), s.diskQueue(), s.diskReadKbps() / 1024.0, s.diskWriteKbps() / 1024.0)
                 + "</html>";
     }
 }

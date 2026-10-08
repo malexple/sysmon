@@ -31,6 +31,8 @@ public final class Main {
                 case "record" -> Recorder.run(Args.parse(rest));
                 case "report" -> ReportCommand.run(rest);
                 case "ui" -> UiCommand.run(rest, false);
+                case "episodes" -> ExportCommand.runEpisodes(rest);
+                case "export" -> ExportCommand.runExport(rest);
                 default -> {
                     System.err.println("Unknown command: " + command);
                     usage();
@@ -77,7 +79,16 @@ public final class Main {
                   --in=<dir>           directory with the CSV files (default: ~/sysmon-samples)
                   --lang=ru|en         window language; default: system language
                   --theme=dark|light   default: dark
-
+                episodes - numbered list of saturation episodes
+                  --in=<dir>         directory with the CSV files (default ~/sysmon-samples)
+                  --lang=ru|en       output language (default: system language)
+            
+                export - zip with the chosen episodes, one folder per episode
+                  --in=<dir>         directory with the CSV files (default ~/sysmon-samples)
+                  --episodes=all|1,3 numbers from the episodes list (default all)
+                  --out=<file.zip>   archive (default ~/sysmon-samples/sysmon-episodes-yyyyMMdd-HHmmss.zip)
+                  --pad=60s          context before and after every episode (s, m, h, d)
+                  --lang=ru|en       language of summary.txt
                 --version              print the version
                 """);
     }

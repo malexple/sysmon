@@ -49,6 +49,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.TreeMap;
+import ru.mcs.sysmon.cli.Exporter;
+import javax.swing.ListSelectionModel;
+import javax.swing.filechooser.FileNameExtensionFilter;
 
 /**
  * The main window: recording controls, strips, episode list, stacked chart and process table.
@@ -83,6 +86,11 @@ public final class SysmonWindow {
     private JButton startButton;
     private JButton stopButton;
     private JCheckBox liveBox;
+    private JList<Episode> episodeList;
+    private boolean listDriving;
+    private boolean lastHas;
+    private long lastFrom;
+    private long lastTo;
 
     private SysmonWindow(Path dir, Lang lang, boolean dark) {
         this.dir = dir;
@@ -242,6 +250,7 @@ public final class SysmonWindow {
         episodeVersion = -1;
         syncEpisodes();
         vm.addListener(this::syncEpisodes);
+        vm.addListener(this::followStrips);
 
         JPanel north = new JPanel(new BorderLayout());
         north.add(verdict, BorderLayout.CENTER);
@@ -269,6 +278,20 @@ public final class SysmonWindow {
         updateRecordingUi();
     }
 
+    /** A list highlight must always mean "this is the selected interval", so dragging on the strips clears it. */
+    private void followStrips() {
+        boolean has = vm.hasSelection();
+        long from = vm.from();
+        long to = vm.to();
+        boolean changed = has != lastHas || from != lastFrom || to != lastTo;
+        lastHas = has;
+        lastFrom = from;
+        lastTo = to;
+        if (changed && !listDriving && episodeList != null) {
+            episodeList.clearSelection();
+        }
+    }
+
     private void syncEpisodes() {
         if (vm == null || episodeVersion == vm.version) {
             return;
@@ -283,25 +306,33 @@ public final class SysmonWindow {
         JPanel panel = new JPanel(new BorderLayout());
         episodeTitle.setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 10));
         panel.add(episodeTitle, BorderLayout.NORTH);
-        JList<Episode> list = new JList<>(episodeModel);
-        list.setCellRenderer(new DefaultListCellRenderer() {
+        episodeList = new JList<>(episodeModel);
+        episodeList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        episodeList.setCellRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> l, Object value, int index,
                                                           boolean selected, boolean focus) {
                 super.getListCellRendererComponent(l, value, index, selected, focus);
                 Episode e = (Episode) value;
-                setText(TIME.format(Instant.ofEpochMilli(e.startMs())) + " - " + TIME.format(Instant.ofEpochMilli(e.endMs()))
-                        + "  " + resourceName(e.resource()) + " (" + e.durationMs() / 1000 + " " + lang.t("s", "с") + ")");
+                setText(TIME.format(Instant.ofEpochMilli(e.startMs())) + " - "
+                        + TIME.format(Instant.ofEpochMilli(e.endMs())) + "  "
+                        + resourceName(e.resource()) + " (" + e.durationMs() / 1000 + " " + lang.t("s", "с") + ")");
                 return this;
             }
         });
-        list.addListSelectionListener(ev -> {
-            Episode e = list.getSelectedValue();
-            if (!ev.getValueIsAdjusting() && e != null && vm != null) {
+        episodeList.addListSelectionListener(ev -> {
+            if (ev.getValueIsAdjusting() || vm == null || episodeList.getSelectedIndices().length != 1) {
+                return; // several episodes are only picked for export, the interval stays as it is
+            }
+            Episode e = episodeList.getSelectedValue();
+            listDriving = true;
+            try {
                 vm.select(e.startMs() - vm.interval, e.endMs() + vm.interval);
+            } finally {
+                listDriving = false;
             }
         });
-        panel.add(new JScrollPane(list), BorderLayout.CENTER);
+        panel.add(new JScrollPane(episodeList), BorderLayout.CENTER);
         return panel;
     }
 
@@ -343,6 +374,14 @@ public final class SysmonWindow {
         });
         tb.add(open);
         tb.add(refresh);
+
+        JButton export = new JButton(lang.t("Export...", "Экспорт..."));
+        export.setToolTipText(lang.t(
+                "Save the episodes picked in the list, else the interval dragged on the strips, else all episodes, as a zip",
+                "Сохранить в zip эпизоды, выбранные в списке, иначе интервал с полос, иначе все эпизоды"));
+        export.addActionListener(e -> exportZip());
+        tb.add(export);
+
         tb.add(liveBox);
         tb.add(compressBox);
         tb.addSeparator();
@@ -375,6 +414,81 @@ public final class SysmonWindow {
         tb.add(theme);
         tb.add(language);
         return tb;
+    }
+
+    // ---- export ----------------------------------------------------------------------------
+
+    private void exportZip() {
+        if (vm == null || vm.episodes.isEmpty() && !vm.hasSelection()) {
+            JOptionPane.showMessageDialog(frame,
+                    lang.t("No episodes to export. Drag over the strips to choose an interval.",
+                            "Нет эпизодов для выгрузки. Выделите интервал мышкой на полосах."),
+                    "sysmon", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        final Recording rec = vm.recording;
+        final List<Exporter.Piece> pieces = Exporter.choose(vm.episodes,
+                episodeList == null ? List.of() : episodeList.getSelectedValuesList(),
+                vm.hasSelection(), vm.from(), vm.to());
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle(lang.t("Export to zip", "Выгрузка в zip"));
+        chooser.setFileFilter(new FileNameExtensionFilter("ZIP", "zip"));
+        chooser.setSelectedFile(Exporter.defaultZip().toFile());
+        if (chooser.showSaveDialog(frame) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        Path chosen = chooser.getSelectedFile().toPath();
+        final Path target = chosen.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".zip")
+                ? chosen : chosen.resolveSibling(chosen.getFileName() + ".zip");
+        if (Files.exists(target) && JOptionPane.showConfirmDialog(frame,
+                lang.t("Replace the existing file?", "Заменить существующий файл?") + "\n" + target,
+                "sysmon", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) {
+            return;
+        }
+        final Lang exportLang = lang;
+        new SwingWorker<Integer, Void>() {
+            @Override
+            protected Integer doInBackground() throws Exception {
+                return Exporter.write(rec, pieces, Exporter.PAD_MS, exportLang, target);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    afterExport(target, get());
+                } catch (Exception ex) {
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    JOptionPane.showMessageDialog(frame,
+                            cause.getMessage() != null ? cause.getMessage() : cause.toString(),
+                            "sysmon", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    private void afterExport(Path target, int folders) {
+        Object[] options = {lang.t("Show in folder", "Показать в папке"), "OK"};
+        int answer = JOptionPane.showOptionDialog(frame,
+                lang.t("Archive saved: ", "Архив сохранён: ") + target
+                        + "\n" + lang.t("Folders: ", "Папок: ") + folders,
+                "sysmon", JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE,
+                null, options, options[1]);
+        if (answer == 0) {
+            showInFolder(target);
+        }
+    }
+
+    private static void showInFolder(Path file) {
+        try {
+            if (System.getProperty("os.name", "").startsWith("Windows")) {
+                new ProcessBuilder("explorer.exe", "/select,", file.toAbsolutePath().toString()).start();
+            } else if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(file.toAbsolutePath().getParent().toFile());
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // the path is in the message anyway
+        }
     }
 
     private String metricName(Metric m) {

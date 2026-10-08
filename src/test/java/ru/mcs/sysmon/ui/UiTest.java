@@ -79,4 +79,13 @@ class UiTest {
         assertEquals(10000, StackedAreaChart.niceStep(26500), 1e-9);
         assertEquals(1, StackedAreaChart.niceStep(0), 1e-9);
     }
+
+    @Test
+    void chartTitleFollowsTheMetric() throws Exception {
+        StackedAreaChart chart = new StackedAreaChart(model(), Palette.DARK, new Lang(false), Metric.CPU);
+        String cpuTitle = chart.title();
+        chart.setMetric(Metric.MEMORY);
+        assertTrue(!cpuTitle.isEmpty());
+        assertTrue(!cpuTitle.equals(chart.title()));
+    }
 }

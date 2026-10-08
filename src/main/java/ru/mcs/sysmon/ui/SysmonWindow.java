@@ -10,33 +10,11 @@ import ru.mcs.sysmon.analysis.Resource;
 import ru.mcs.sysmon.cli.Lang;
 import ru.mcs.sysmon.recording.RecordingSession;
 
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.ButtonGroup;
-import javax.swing.DefaultListCellRenderer;
-import javax.swing.DefaultListModel;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JFileChooser;
-import javax.swing.JFrame;
-import javax.swing.JLabel;
-import javax.swing.JList;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JSplitPane;
-import javax.swing.JTextArea;
-import javax.swing.JToggleButton;
-import javax.swing.JToolBar;
-import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
-import javax.swing.SwingWorker;
-import javax.swing.UIManager;
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.Desktop;
-import java.awt.Dimension;
-import java.awt.Frame;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.datatransfer.StringSelection;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
@@ -50,7 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.TreeMap;
 import ru.mcs.sysmon.cli.Exporter;
-import javax.swing.ListSelectionModel;
+
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 /**
@@ -91,6 +69,7 @@ public final class SysmonWindow {
     private boolean lastHas;
     private long lastFrom;
     private long lastTo;
+    private JButton exportButton;
 
     private SysmonWindow(Path dir, Lang lang, boolean dark) {
         this.dir = dir;
@@ -122,6 +101,7 @@ public final class SysmonWindow {
             }
         });
         frame.setSize(1320, 860);
+        frame.setMinimumSize(new Dimension(1100, 600));
         frame.setLocationRelativeTo(null);
         frame.setIconImage(TrayController.icon(32, false));
         frame.setTitle(title());
@@ -242,6 +222,7 @@ public final class SysmonWindow {
         verdict.setOpaque(false);
         verdict.setFont(UIManager.getFont("Label.font"));
         verdict.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+
         Runnable updateVerdict = () -> verdict.setText(
                 Verdict.text(vm.recording, vm.episodes, vm.from(), vm.to(), !vm.hasSelection(), lang));
         vm.addListener(updateVerdict);
@@ -253,10 +234,10 @@ public final class SysmonWindow {
         vm.addListener(this::followStrips);
 
         JPanel north = new JPanel(new BorderLayout());
-        north.add(verdict, BorderLayout.CENTER);
+        north.add(verdictPanel(verdict), BorderLayout.CENTER);
         north.add(strips, BorderLayout.SOUTH);
 
-        JSplitPane lower = new JSplitPane(JSplitPane.VERTICAL_SPLIT, chart, table);
+        JSplitPane lower = new JSplitPane(JSplitPane.VERTICAL_SPLIT, chartBox(pal), table);
         lower.setResizeWeight(0.6);
         lower.setBorder(null);
 
@@ -268,9 +249,14 @@ public final class SysmonWindow {
         main.setDividerLocation(220);
         main.setBorder(null);
 
+        // A small margin so that nothing touches the edge of the window.
+        JPanel body = new JPanel(new BorderLayout());
+        body.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+        body.add(main, BorderLayout.CENTER);
+
         JPanel root = new JPanel(new BorderLayout());
         root.add(toolbar(), BorderLayout.NORTH);
-        root.add(main, BorderLayout.CENTER);
+        root.add(body, BorderLayout.CENTER);
         frame.setContentPane(root);
         frame.setTitle(title());
         frame.revalidate();
@@ -344,27 +330,36 @@ public final class SysmonWindow {
         };
     }
 
-    private JToolBar toolbar() {
-        JToolBar tb = new JToolBar();
-        tb.setFloatable(false);
+    private JPanel toolbar() {
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
 
-        startButton = new JButton(lang.t("\u25CF Start recording", "\u25CF Начать запись"));
+        // 1. Recording: only the dot is red, the button itself stays calm.
+        startButton = new JButton("<html><font color='#E0524D'>\u25CF</font> "
+                + lang.t("Start recording", "Начать запись") + "</html>");
         startButton.addActionListener(e -> showStartDialog());
         stopButton = new JButton(lang.t("\u25A0 Stop", "\u25A0 Остановить"));
         stopButton.addActionListener(e -> requestStop());
         recLabel = new JLabel();
-        recLabel.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
-        tb.add(startButton);
-        tb.add(stopButton);
-        tb.add(recLabel);
-        tb.addSeparator();
+        recLabel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
+        left.add(startButton);
+        left.add(stopButton);
+        left.add(recLabel);
+        left.add(separator());
 
+        // 2. Data source.
         JButton open = new JButton(lang.t("Open folder...", "Открыть папку..."));
         open.addActionListener(e -> chooseDir());
         JButton refresh = new JButton(lang.t("Reload", "Обновить"));
         refresh.addActionListener(e -> reload());
         liveBox = new JCheckBox(lang.t("Live (15 s)", "Живой режим (15 с)"), live);
         liveBox.addActionListener(e -> setLive(liveBox.isSelected()));
+        left.add(open);
+        left.add(refresh);
+        left.add(liveBox);
+        left.add(separator());
+
+        // 3. View: affects the strips and the chart alike.
         JCheckBox compressBox = new JCheckBox(lang.t("Compact gaps", "Сжать пропуски"), compress);
         compressBox.addActionListener(e -> {
             compress = compressBox.isSelected();
@@ -372,48 +367,110 @@ public final class SysmonWindow {
                 vm.setCompressGaps(compress);
             }
         });
-        tb.add(open);
-        tb.add(refresh);
+        left.add(compressBox);
 
-        JButton export = new JButton(lang.t("Export...", "Экспорт..."));
-        export.setToolTipText(lang.t(
-                "Save the episodes picked in the list, else the interval dragged on the strips, else all episodes, as a zip",
-                "Сохранить в zip эпизоды, выбранные в списке, иначе интервал с полос, иначе все эпизоды"));
-        export.addActionListener(e -> exportZip());
-        tb.add(export);
+        // 4. The final action and the look of the window.
+        exportButton = new JButton(lang.t("Export to ZIP...", "Экспорт в ZIP..."));
+        exportButton.setToolTipText(lang.t(
+                "Save to a zip: the episodes picked in the list, else the interval dragged on the strips, else all episodes",
+                "Сохранить в zip: эпизоды, выбранные в списке, иначе интервал с полос, иначе все эпизоды"));
+        exportButton.setEnabled(vm != null);
+        exportButton.addActionListener(e -> exportZip());
+        right.add(exportButton);
+        right.add(separator());
 
-        tb.add(liveBox);
-        tb.add(compressBox);
-        tb.addSeparator();
+        int iconSize = Math.round(ChartBase.baseFont().getSize2D() * 1.3f);
+        JToggleButton light = new JToggleButton(ThemeIcons.sun(iconSize), !dark);
+        light.setToolTipText(lang.t("Light theme", "Светлая тема"));
+        light.addActionListener(e -> setDark(false));
+        JToggleButton night = new JToggleButton(ThemeIcons.moon(iconSize), dark);
+        night.setToolTipText(lang.t("Dark theme", "Тёмная тема"));
+        night.addActionListener(e -> setDark(true));
+        ButtonGroup themeGroup = new ButtonGroup();
+        themeGroup.add(light);
+        themeGroup.add(night);
+        right.add(segmented(light, night));
 
-        tb.add(new JLabel(lang.t("Chart: ", "График: ")));
+        JToggleButton ru = new JToggleButton("RU", lang.ru());
+        ru.addActionListener(e -> setLanguage(true));
+        JToggleButton en = new JToggleButton("EN", !lang.ru());
+        en.addActionListener(e -> setLanguage(false));
+        ButtonGroup languageGroup = new ButtonGroup();
+        languageGroup.add(ru);
+        languageGroup.add(en);
+        right.add(segmented(ru, en));
+
+        JPanel bar = new JPanel(new BorderLayout());
+        bar.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        bar.add(left, BorderLayout.WEST);
+        bar.add(right, BorderLayout.EAST);
+        return bar;
+    }
+
+    private static JSeparator separator() {
+        JSeparator s = new JSeparator(SwingConstants.VERTICAL);
+        s.setPreferredSize(new Dimension(2, Math.round(ChartBase.baseFont().getSize2D() * 1.8f)));
+        return s;
+    }
+
+    /** Toggle buttons in one rounded frame, so it is clear that exactly one of them is on. */
+    private static JPanel segmented(JToggleButton... buttons) {
+        return segmented(0, buttons);
+    }
+
+    /** Same, and every button gets the width of the widest one plus extraWidth. */
+    private static JPanel segmented(int extraWidth, JToggleButton... buttons) {
+        JPanel panel = new JPanel(new GridLayout(1, buttons.length, 0, 0));
+        panel.setOpaque(false);
+        Color border = UIManager.getColor("Component.borderColor");
+        panel.setBorder(BorderFactory.createLineBorder(border != null ? border : Color.GRAY, 1, true));
+        int width = 0;
+        int height = 0;
+        for (JToggleButton b : buttons) {
+            b.putClientProperty("JButton.buttonType", "toolBarButton");
+            b.setFocusable(false);
+            Dimension d = b.getPreferredSize();
+            width = Math.max(width, d.width);
+            height = Math.max(height, d.height);
+        }
+        for (JToggleButton b : buttons) {
+            b.setPreferredSize(new Dimension(width + extraWidth, height));
+            panel.add(b);
+        }
+        return panel;
+    }
+
+    /** Chart with its own header: the title on the left, the metric switch on the right. */
+    private JPanel chartBox(Palette pal) {
+        JLabel title = new JLabel(chart.title());
+        title.setForeground(pal.text);
+        title.setFont(title.getFont().deriveFont(Font.BOLD));
+
         ButtonGroup group = new ButtonGroup();
+        List<JToggleButton> buttons = new ArrayList<>();
         for (Metric m : Metric.values()) {
             JToggleButton button = new JToggleButton(metricName(m), m == metric);
             button.addActionListener(e -> {
                 metric = m;
-                if (chart != null && vm != null) {
-                    chart.setMetric(m);
-                }
+                chart.setMetric(m);
+                title.setText(chart.title());
             });
             group.add(button);
-            tb.add(button);
+            buttons.add(button);
         }
 
-        tb.add(Box.createHorizontalGlue());
-        JButton theme = new JButton(dark ? lang.t("Light theme", "Светлая тема") : lang.t("Dark theme", "Тёмная тема"));
-        theme.addActionListener(e -> toggleTheme());
-        JButton language = new JButton(lang.ru() ? "EN" : "RU");
-        language.addActionListener(e -> {
-            lang = new Lang(!lang.ru());
-            if (tray != null) {
-                tray.setLang(lang);
-            }
-            rebuild();
-        });
-        tb.add(theme);
-        tb.add(language);
-        return tb;
+        int extra = Math.round(ChartBase.baseFont().getSize2D() * 1.2f);
+        JPanel header = new JPanel(new BorderLayout());
+        header.setBackground(pal.chartBg);
+        header.setBorder(BorderFactory.createEmptyBorder(6, 8, 2, 8));
+        header.add(title, BorderLayout.WEST);
+        header.add(segmented(extra, buttons.toArray(new JToggleButton[0])), BorderLayout.EAST);
+
+        JPanel box = new JPanel(new BorderLayout());
+        box.setBackground(pal.chartBg);
+        box.add(header, BorderLayout.NORTH);
+        box.add(chart, BorderLayout.CENTER);
+        return box;
     }
 
     // ---- export ----------------------------------------------------------------------------
@@ -500,10 +557,24 @@ public final class SysmonWindow {
         };
     }
 
-    private void toggleTheme() {
-        dark = !dark;
+    private void setDark(boolean value) {
+        if (dark == value) {
+            return;
+        }
+        dark = value;
         applyLaf(dark);
         FlatLaf.updateUI();
+        rebuild();
+    }
+
+    private void setLanguage(boolean ru) {
+        if (lang.ru() == ru) {
+            return;
+        }
+        lang = new Lang(ru);
+        if (tray != null) {
+            tray.setLang(lang);
+        }
         rebuild();
     }
 
@@ -714,5 +785,68 @@ public final class SysmonWindow {
         }
         frame.dispose();
         System.exit(0);
+    }
+
+    /** The verdict text with a small copy button in the top right corner, visible while the mouse is over the text. */
+    private JPanel verdictPanel(JTextArea verdict) {
+        int iconSize = Math.round(ChartBase.baseFont().getSize2D() * 1.2f);
+        Icon copyIcon = ActionIcons.copy(iconSize);
+        Icon doneIcon = ActionIcons.check(iconSize);
+
+        JButton copy = new JButton(copyIcon);
+        copy.setToolTipText(lang.t("Copy text", "Копировать текст"));
+        copy.putClientProperty("JButton.buttonType", "toolBarButton");
+        copy.setFocusable(false);
+        copy.setVisible(false);
+        copy.addActionListener(e -> {
+            try {
+                Toolkit.getDefaultToolkit().getSystemClipboard()
+                        .setContents(new StringSelection(verdict.getText()), null);
+            } catch (IllegalStateException ignored) {
+                return; // the clipboard is busy, nothing was copied
+            }
+            copy.setIcon(doneIcon);
+            copy.setToolTipText(lang.t("Copied", "Скопировано"));
+            javax.swing.Timer back = new javax.swing.Timer(1500, ev -> {
+                copy.setIcon(copyIcon);
+                copy.setToolTipText(lang.t("Copy text", "Копировать текст"));
+            });
+            back.setRepeats(false);
+            back.start();
+        });
+
+        // OverlayLayout lines components up by their alignment points: all of them
+        // must be anchored to the top right corner, otherwise the button lands in the middle.
+        copy.setAlignmentX(1f);
+        copy.setAlignmentY(0f);
+        verdict.setAlignmentX(1f);
+        verdict.setAlignmentY(0f);
+        // room on the right so that the button never covers the text
+        verdict.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, iconSize + 20));
+
+        JPanel box = new JPanel();
+        box.setLayout(new OverlayLayout(box));
+        box.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 6));
+        box.add(copy);      // the first one is painted on top
+        box.add(verdict);
+
+        MouseAdapter hover = new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                copy.setVisible(true);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                Point p = SwingUtilities.convertPoint((Component) e.getSource(), e.getPoint(), box);
+                if (!box.contains(p)) {
+                    copy.setVisible(false);
+                }
+            }
+        };
+        box.addMouseListener(hover);
+        verdict.addMouseListener(hover);
+        copy.addMouseListener(hover);
+        return box;
     }
 }

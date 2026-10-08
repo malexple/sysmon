@@ -24,6 +24,8 @@ java -jar build/libs/sysmon-<version>.jar                       # window with th
 java -jar build/libs/sysmon-<version>.jar record --duration=8h  # record for 8 hours from the console (Ctrl+C stops earlier)
 java -jar build/libs/sysmon-<version>.jar report                # console report
 java -jar build/libs/sysmon-<version>.jar ui                    # window on recorded data
+java -jar build/libs/sysmon-<version>.jar episodes              # numbered list of episodes
+java -jar build/libs/sysmon-<version>.jar export                # zip with all episodes
 java -jar build/libs/sysmon-<version>.jar --version
 ```
 
@@ -140,11 +142,74 @@ java -jar sysmon.jar ui --lang=en --theme=dark
 
 - **Three strips** (CPU, memory, disk) over the whole recording. Bar height is utilization, bar colour is saturation (blue, yellow, red), red background bands are episodes. Gaps in the recording (sleep, restarts) are hatched; the "Compact gaps" switch squeezes long pauses into a narrow hatched stripe.
 - **Interval selection:** drag across the strips; a click clears the selection. Everything below shows the selected interval. The tooltip of the disk strip shows busy time, queue and read and write speeds.
-- **Verdict line** describes the interval in words: peaks, overlapping episodes, main processes by CPU, by reads and by writes, the biggest memory change. For the whole recording it also says how much time was recorded out of the total span.
-- **Episode list** on the left: a click selects the episode interval.
-- **Stacked chart** of the top 5 processes (by name) plus "other". The metric is switchable: CPU, memory, read, write (read and write in MB/s), so you can see which programs read a lot and which write a lot. A tooltip shows the values on hover.
+- **Verdict line** describes the interval in words: peaks, overlapping episodes, main processes by CPU, by reads and by writes, the biggest memory change. For the whole recording it also says how much time was recorded out of the total span. It is plain text; on hover a small copy icon appears in the top right corner.
+- **Episode list** on the left: a click selects the episode interval, Ctrl-click and Shift-click pick several episodes for export (the interval stays as it is).
+- **Stacked chart** of the top 5 processes (by name) plus "other". The metric is switched with the CPU, Memory, Read, Write buttons in the chart header (read and write in MB/s), so you can see which programs read a lot and which write a lot. A tooltip shows the values on hover.
 - **Process table** for the interval with heat-map shading and sorting. Read and write are separate columns in MB/s.
-- Toolbar: "Start recording", "Stop", open folder, reload, "Live mode" (re-reads the files every 15 seconds without rebuilding the window: sorting and dividers are kept), "Compact gaps", light and dark theme, RU/EN language.
+- **Toolbar** is split into groups. Recording: "Start recording", "Stop" and the REC state. Data: "Open folder...", "Reload", "Live mode" (re-reads the files every 15 seconds without rebuilding the window: sorting and dividers are kept). View: "Compact gaps". On the right: "Export to ZIP..." (disabled while there is no data), the theme switch (sun | moon) and the language switch (RU | EN).
+
+## Exporting episodes to a zip
+
+To show colleagues or IT only the relevant moments instead of the whole directory, use the "Export to ZIP..." button in the window or the `export` command.
+
+What goes into the archive. The window applies these rules in order:
+
+1. the episodes picked in the list on the left (Ctrl-click and Shift-click pick several);
+2. if nothing is picked in the list, the interval dragged on the strips. This is for "smeared" slowdowns that do not reach the episode thresholds (for example, the disk busy at 75% for ten minutes);
+3. if there is no interval either, all episodes.
+
+Archive layout:
+
+```text
+sysmon-episodes-20261008-143015.zip
+├── summary.txt                        report on what was exported (like the report command)
+├── episodes.csv                       what was exported: folder, resource, start, end, duration
+├── episode-1-memory-20-18-57/         episode no. 1, start time in the name
+│   ├── system-export.csv
+│   └── process-export.csv
+├── episode-2-memory-00-09-45/
+│   └── ...
+└── custom-interval-14-05-46/          instead of an episode folder when a dragged interval was exported
+```
+
+- Every folder holds 60 seconds before and after the episode, so you see the state of the system before the slowdown and after it. The window uses a constant, the console can change it with `--pad`.
+- Episode numbers are chronological and match the `episodes` command. Times in folder names and in `episodes.csv` are local time.
+- Process names stay as they are. The files are rebuilt from the parsed data, so malformed lines do not end up in the archive.
+- By default the archive is named `sysmon-episodes-yyyyMMdd-HHmmss.zip` and proposed in `%USERPROFILE%\sysmon-samples`. After saving, the window shows "Archive saved" and a "Show in folder" button (Explorer with the file selected).
+
+To open an archive: unzip it and run `java -jar sysmon.jar ui --in=<unpacked folder>`. The directory is read together with its subfolders (the root and two levels below), so all episodes open in one window with the pauses between them hatched. Samples with the same time from different folders (the padding of neighbouring episodes overlaps) are merged into one.
+
+From the console:
+
+```bash
+java -jar sysmon.jar episodes                                    # list of episodes with numbers
+java -jar sysmon.jar export --episodes=1,3 --out=incident.zip    # export episodes 1 and 3
+java -jar sysmon.jar export                                      # export all episodes
+```
+
+| `episodes` option | Default | Meaning |
+|---|---|---|
+| `--in=<dir>` | `~/sysmon-samples` | directory with the CSV files |
+| `--lang=ru\|en` | system language | output language |
+
+| `export` option | Default | Meaning |
+|---|---|---|
+| `--in=<dir>` | `~/sysmon-samples` | directory with the CSV files |
+| `--episodes=all\|1,3` | `all` | numbers from the `episodes` list |
+| `--out=<file.zip>` | `~/sysmon-samples/sysmon-episodes-<date-time>.zip` | where to save the archive |
+| `--pad=60s` | 60s | context before and after every episode (`s`, `m`, `h`, `d`) |
+| `--lang=ru\|en` | system language | language of `summary.txt` |
+
+The `episodes` command prints one line per episode: number, start and end, resource, duration and the main processes by CPU. Format example (the values are illustrative):
+
+```text
+Saturation episodes in C:\Users\user\sysmon-samples: 2
+  1  2026-10-05 20:18:57 - 20:19:48  Memory     60 s  idea64 12.9%, MsMpEng 7.5%
+  2  2026-10-06 00:09:45 - 00:13:26  Memory    231 s  idea64 11.0%
+Export: export --episodes=1,3
+```
+
+An arbitrary interval (not an episode) can be exported from the window only.
 
 ## Example finding
 
@@ -155,7 +220,7 @@ A recording on a developer laptop: a project build ran at 20:18-20:20. The windo
 - There is no direct CPU run-queue counter; CPU saturation is approximated by high load.
 - Process reads and writes are not disk I/O (see above). Disk busy time and queue come from Windows counters through OSHI; on a given machine it is worth checking them under load (copy a large file and see whether `disk_busy_pct` and `disk_queue` rise).
 - Small processes end up in `(other)`: raise `--top` for a more detailed view.
-- `report` and `ui` read the whole directory into memory. That is fine for several days of recording; hundreds of megabytes would need streaming loading.
+- `report` and `ui` read the whole directory into memory. That is fine for several days of recording; hundreds of megabytes would need streaming loading. Subfolders are read two levels deep below the chosen directory.
 - The working set (`rss_mb`) includes shared pages, so the sum over processes can exceed the physical memory in use.
 - On Java 17 the Cyrillic console output of `report` may be garbled on Windows: use `--file=report.txt` (UTF-8) or `--lang=en`.
 - macOS and Linux are untested: some metrics (for example disk busy time and paging) may be unavailable there. The tray icon on Windows 11 may be in the hidden area (the "^" arrow), and notifications depend on system settings.
@@ -222,15 +287,15 @@ sysmon/
 ├── settings.gradle
 └── src/
     ├── main/java/ru/mcs/sysmon/
-    │   ├── cli/        Main, record, report, ui, argument parsing, language
+    │   ├── cli/        Main, record, report, episodes, export (Exporter), ui, argument parsing, language
     │   ├── collector/  Sampler (OSHI), top-N selection
     │   ├── model/      SystemSample, ProcessSample, Sample
     │   ├── recording/  RecordingSession: recording on a background thread (console and window)
     │   ├── storage/    CSV writer with rotation and a disk quota
     │   ├── analysis/   recording loader, saturation episodes, per-name aggregation
-    │   └── ui/         Swing + FlatLaf window, Java2D charts, tray, recording dialog
+    │   └── ui/         Swing + FlatLaf window, Java2D charts, icons, tray, recording dialog
     └── test/
-        ├── java/...    tests for rotation, top-N, episodes, recording, report and window
+        ├── java/...    tests for rotation, top-N, episodes, recording, report, export and window
         └── resources/sample/  a real recording used by the tests
 ```
 

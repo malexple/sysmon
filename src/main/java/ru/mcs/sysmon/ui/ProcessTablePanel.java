@@ -45,6 +45,7 @@ final class ProcessTablePanel extends JPanel {
         table.setAutoCreateRowSorter(true);
         table.setFillsViewportHeight(true);
         table.setRowHeight(Math.round(table.getRowHeight() * 1.1f));
+        table.getTableHeader().putClientProperty("FlatLaf.style", "cellMargins: 2,12,2,12");
         HeatRenderer renderer = new HeatRenderer();
         for (int c = 0; c < model.getColumnCount(); c++) {
             table.getColumnModel().getColumn(c).setCellRenderer(renderer);

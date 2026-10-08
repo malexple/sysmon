@@ -163,7 +163,7 @@ final class StackedAreaChart extends ChartBase {
         return 100 * exp;
     }
 
-    private String title() {
+    String title() {
         return switch (metric) {
             case CPU -> lang.t("CPU by process, % of machine", "CPU по процессам, % от машины");
             case MEMORY -> lang.t("Memory by process (RSS), MB", "Память по процессам (RSS), МБ");
@@ -216,13 +216,13 @@ final class StackedAreaChart extends ChartBase {
         g.setColor(pal.chartBg);
         g.fillRect(0, 0, w, h);
         left = s(72);
-        top = s(52);
+        top = s(30);
         plotW = w - left - s(14);
         plotH = h - top - s(24);
 
-        g.setFont(font(Font.BOLD, 1.0f));
-        g.setColor(pal.text);
-        g.drawString(title(), s(8), s(8) + g.getFontMetrics().getAscent());
+//        g.setFont(font(Font.BOLD, 1.0f));
+//        g.setColor(pal.text);
+//        g.drawString(title(), s(8), s(8) + g.getFontMetrics().getAscent());
 
         if (ts.length < 2 || plotW < 20 || plotH < 20) {
             g.setFont(font(Font.PLAIN, 1.0f));
@@ -252,12 +252,13 @@ final class StackedAreaChart extends ChartBase {
             int x = (int) Math.round(xOf(t));
             g.setColor(pal.grid);
             g.drawLine(x, top, x, top + plotH);
-            if (x - lw / 2 < lastRight + s(6)) {
+            int lx = Math.min(x - lw / 2, getWidth() - lw - s(2));
+            if (lx < lastRight + s(6)) {
                 continue;
             }
             g.setColor(pal.textDim);
-            g.drawString(label, x - lw / 2, top + plotH + s(4) + fm.getAscent());
-            lastRight = x + lw / 2;
+            g.drawString(label, lx, top + plotH + s(4) + fm.getAscent());
+            lastRight = lx + lw;
         }
 
         int n = ts.length;
@@ -304,7 +305,7 @@ final class StackedAreaChart extends ChartBase {
         g.setStroke(new BasicStroke(1f));
 
         int lx = left;
-        int ly = s(38);
+        int ly = s(16);
         for (int k = 0; k < names.length; k++) {
             String label = shorten(names[k]) + "  " + fmt(avgs[k]);
             int need = s(14) + fm.stringWidth(label) + s(16);

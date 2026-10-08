@@ -262,11 +262,12 @@ final class TimelineStrips extends ChartBase {
             String label = TimeAxis.format(t, span);
             int w = fm.stringWidth(label);
             int x = xOf(t);
-            if (x - w / 2 < lastRight + s(6)) {
+            int lx = Math.min(x - w / 2, getWidth() - w - s(2));
+            if (lx < lastRight + s(6)) {
                 continue;
             }
-            g.drawString(label, x - w / 2, axisY + fm.getAscent());
-            lastRight = x + w / 2;
+            g.drawString(label, lx, axisY + fm.getAscent());
+            lastRight = lx + w;
         }
 
         if (vm.hasSelection()) {

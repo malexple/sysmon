@@ -1,233 +1,233 @@
 # sysmon
 
-[English](README.en.md)
+[Русский](README.md)
 
-Portable-утилита, которая записывает, что реально грузит компьютер (CPU, память, диск, процессы), и показывает это на понятных графиках. Запускается одним `jar`-файлом, без установки и без прав администратора. Родилась из задачи «ускорить рабочий ноутбук на Windows 11, не имея админских прав»: сначала измеряем, потом решаем, что чинить, и приносим в IT конкретные цифры.
+A portable tool that records what actually loads a computer (CPU, memory, disk, processes) and shows it on clear charts. It runs as a single `jar`: no installation, no administrator rights. It started as an answer to "speed up a work laptop on Windows 11 without admin rights": measure first, then decide what to fix, and bring IT concrete numbers.
 
-![sysmon_ru.png](.assets/sysmon_ru.png)
+![sysmon_en.png](.assets/sysmon_en.png)
 
-## Идея: метод USE
+## Idea: the USE method
 
-Для каждого ресурса смотрим три вещи (метод USE Брендана Грегга): **утилизацию** (насколько занят), **насыщение** (накопилась ли очередь, которую ресурс не успевает обслужить) и **ошибки**. Загрузка CPU в 5% ещё не значит, что всё хорошо: тормоза чаще дают насыщение памяти (подкачка) или диска. Поэтому sysmon пишет не только процессы, но и системные метрики насыщения, а затем автоматически находит интервалы, где ресурс был перегружен, и показывает, кто в это время работал.
+For every resource, look at three things (Brendan Gregg's USE method): **utilization** (how busy it is), **saturation** (whether a queue builds up that the resource cannot serve) and **errors**. 5% CPU load does not mean everything is fine: slowdowns usually come from memory saturation (paging) or disk saturation. So sysmon records not only processes but also system saturation metrics, then finds the intervals where a resource was overloaded and shows who was running at that time.
 
-| Ресурс | Утилизация | Насыщение |
+| Resource | Utilization | Saturation |
 |---|---|---|
-| CPU | загрузка всей машины, % | прямого счётчика очереди нет, приближение: загрузка выше порога |
-| Память | занято / всего, commit | page-in в секунду (подкачка), мало свободной памяти |
-| Диск | время занятости, МБ/с | длина очереди, занятость выше порога |
+| CPU | whole-machine load, % | no direct run-queue counter, approximated by load above a threshold |
+| Memory | used / total, commit | page-ins per second (paging), low free memory |
+| Disk | busy time, MB/s | queue length, busy time above a threshold |
 
-## Быстрый старт
+## Quick start
 
 ```bash
-./gradlew shadowJar                                             # собрать build/libs/sysmon-<версия>.jar
-java -jar build/libs/sysmon-<версия>.jar                        # окно с диалогом «Начать запись»
-java -jar build/libs/sysmon-<версия>.jar record --duration=8h   # писать 8 часов из консоли (Ctrl+C останавливает раньше)
-java -jar build/libs/sysmon-<версия>.jar report                 # отчёт в консоли
-java -jar build/libs/sysmon-<версия>.jar ui                     # окно на готовых записях
-java -jar build/libs/sysmon-<версия>.jar episodes               # пронумерованный список эпизодов
-java -jar build/libs/sysmon-<версия>.jar export                 # zip со всеми эпизодами
-java -jar build/libs/sysmon-<версия>.jar --version
+./gradlew shadowJar                                             # builds build/libs/sysmon-<version>.jar
+java -jar build/libs/sysmon-<version>.jar                       # window with the "Start recording" dialog
+java -jar build/libs/sysmon-<version>.jar record --duration=8h  # record for 8 hours from the console (Ctrl+C stops earlier)
+java -jar build/libs/sysmon-<version>.jar report                # console report
+java -jar build/libs/sysmon-<version>.jar ui                    # window on recorded data
+java -jar build/libs/sysmon-<version>.jar episodes              # numbered list of episodes
+java -jar build/libs/sysmon-<version>.jar export                # zip with all episodes
+java -jar build/libs/sysmon-<version>.jar --version
 ```
 
-В примерах ниже `sysmon.jar` означает ваш `sysmon-<версия>.jar`. По умолчанию данные пишутся в каталог `%USERPROFILE%\sysmon-samples` (на других системах `~/sysmon-samples`) и оттуда же читаются. Окно можно открыть, пока запись ещё идёт: «Живой режим» включается сам, когда запись запущена из окна.
+In the examples below `sysmon.jar` stands for your `sysmon-<version>.jar`. By default data is written to and read from `%USERPROFILE%\sysmon-samples` (`~/sysmon-samples` on other systems). You can open the window while recording is still running: "Live mode" turns on by itself when recording is started from the window.
 
-## Требования
+## Requirements
 
-- Для запуска: Java 17 и выше. Сборка jar: Gradle 8.11.1+ (`./gradlew`, JDK 17 как toolchain).
-- Рассчитано на Windows 10/11. Библиотека сбора данных (OSHI) кроссплатформенная, но на других системах утилита не проверялась.
-- Права администратора не нужны: sysmon только читает системные счётчики и пишет файлы в свой каталог.
+- To run: Java 17 or newer. To build the jar: Gradle 8.11.1+ (`./gradlew`, JDK 17 as the toolchain).
+- Designed for Windows 10/11. The data library (OSHI) is cross-platform, but other systems are untested.
+- No administrator rights: sysmon only reads system counters and writes files into its own directory.
 
-## Запись из окна и трей
+## Recording from the window and the tray
 
-Запуск без аргументов (в том числе двойной щелчок по `jar`) открывает окно и сразу предлагает начать запись: длительность (1, 4, 8, 12 часов или без ограничения), интервал и папка. Запись идёт в фоновом потоке этой же программы.
+Running without arguments (including a double click on the `jar`) opens the window and immediately offers to start recording: duration (1, 4, 8, 12 hours or unlimited), interval and folder. Recording runs in a background thread of the same program.
 
-- В панели видно состояние: «● REC 00:12:34 / 08:00:00 | 4,2 МБ | замеров: 74». Живой режим включается автоматически.
-- Закрытие окна во время записи не останавливает её, а сворачивает программу в трей: значок с красной точкой и подсказкой о времени и размере данных. Меню значка: «Открыть окно», «Остановить запись», «Остановить и открыть папку», «Выход». Когда запись закончилась (в том числе по таймеру), приходит уведомление. Если трея нет, при закрытии окна программа спросит, остановить ли запись.
-- Если в этой папке уже идёт запись в другой программе (защита файлом `.recorder.lock`), окно откроется только для просмотра, а кнопка «Начать запись» будет недоступна.
+- The toolbar shows the state: "● REC 00:12:34 / 08:00:00 | 4.2 MB | samples: 74". Live mode turns on automatically.
+- Closing the window during recording does not stop it: the program goes to the tray, with a red dot on the icon and a tooltip with the elapsed time and data size. Icon menu: "Open window", "Stop recording", "Stop and open folder", "Exit". When recording ends (including by the timer) a notification appears. If there is no tray, closing the window asks whether to stop recording.
+- If another program is already recording into this folder (guarded by the `.recorder.lock` file), the window opens view-only and the "Start recording" button is disabled.
 
-## Команда `record`
+## The `record` command
 
-Запись из консоли, без окна, подходит для серверов и автоматизации.
+Console recording without a window, suitable for servers and automation.
 
-| Параметр | По умолчанию | Смысл |
+| Option | Default | Meaning |
 |---|---|---|
-| `--out=<каталог>` | `~/sysmon-samples` | каталог для `system-*.csv` и `process-*.csv` |
-| `--interval=10` | 10 | секунд между замерами |
-| `--top=25` | 25 | сколько процессов писать в каждом замере, остальные складываются в строку `(other)` |
-| `--max-file-mb=50` | 50 | при таком размере файла начинается новый |
-| `--max-total-mb=500` | 500 | при превышении суммарного размера удаляются самые старые файлы |
-| `--duration=8h` | до Ctrl+C | автоматическая остановка (`s`, `m`, `h`, `d`) |
+| `--out=<dir>` | `~/sysmon-samples` | directory for `system-*.csv` and `process-*.csv` |
+| `--interval=10` | 10 | seconds between samples |
+| `--top=25` | 25 | processes written per sample; the rest are folded into one `(other)` row |
+| `--max-file-mb=50` | 50 | start a new file at this size |
+| `--max-total-mb=500` | 500 | delete the oldest files when the total size exceeds this |
+| `--duration=8h` | until Ctrl+C | stop automatically (`s`, `m`, `h`, `d`) |
 
-Как это работает:
+How it works:
 
-- При старте берётся базовый снимок, а запись начинается через один интервал. Счётчики Windows накопительные, поэтому в файл пишутся **скорости за интервал**, а не накопленные значения.
-- Из процессов сохраняются самые значимые: значимость процесса — наибольшая из его долей в общем CPU, памяти и вводе-выводе. Поэтому процесс с большой памятью и нулевым CPU не теряется, как и процесс с большим CPU. Остальные процессы суммируются в `(other)`.
-- Второй экземпляр записи в тот же каталог не стартует (защита файлом `.recorder.lock`).
-- Имена файлов: `system-yyyyMMdd-HHmmss-NNN.csv` и `process-yyyyMMdd-HHmmss-NNN.csv`.
-- Пути процессов и аргументы командной строки не записываются, только имена.
-- Запуск через `javaw` скрывает консоль, но останавливать запись тогда можно только по `--duration` или завершив процесс.
+- A baseline snapshot is taken at start and recording begins one interval later. Windows counters are cumulative, so the files hold **rates per interval**, not accumulated values.
+- The most significant processes are kept. Significance is the largest of the process's shares of total CPU, memory and I/O, so a process with lots of memory and zero CPU is kept just like a CPU hog. All other processes are summed into `(other)`.
+- A second recorder cannot start in the same directory (guarded by a `.recorder.lock` file).
+- File names: `system-yyyyMMdd-HHmmss-NNN.csv` and `process-yyyyMMdd-HHmmss-NNN.csv`.
+- Process paths and command-line arguments are not recorded, only names.
+- Running through `javaw` hides the console, but then recording can only be stopped by `--duration` or by killing the process.
 
-## Формат данных
+## Data format
 
-Числа пишутся с точкой (независимо от региональных настроек), время в миллисекундах Unix. В файлах скорости хранятся в КБ/с, в окне и в отчёте они показываются в МБ/с.
+Numbers use a dot as the decimal separator regardless of regional settings; time is Unix milliseconds. Speeds are stored in KB/s in the files and shown in MB/s in the window and the report.
 
-`system-*.csv` (одна строка на замер):
+`system-*.csv` (one row per sample):
 
-| Колонка | Смысл |
+| Column | Meaning |
 |---|---|
-| `ts_ms` | время замера |
-| `cpu_pct` | загрузка всей машины, 0–100 |
-| `logical_cpus` | число логических процессоров |
-| `mem_total_mb`, `mem_avail_mb` | всего и доступно физической памяти |
-| `commit_used_mb`, `commit_limit_mb` | использовано и лимит commit-памяти |
-| `pages_in_ps`, `pages_out_ps` | страниц подгружено и выгружено в секунду |
-| `disk_busy_pct` | занятость диска (максимум по дискам), 0–100 |
-| `disk_queue` | сумма длин очередей дисков |
-| `disk_read_kbps`, `disk_write_kbps` | чтение и запись диска, КБ/с |
+| `ts_ms` | sample time |
+| `cpu_pct` | whole-machine load, 0-100 |
+| `logical_cpus` | number of logical processors |
+| `mem_total_mb`, `mem_avail_mb` | total and available physical memory |
+| `commit_used_mb`, `commit_limit_mb` | committed memory and its limit |
+| `pages_in_ps`, `pages_out_ps` | pages read in and written out per second |
+| `disk_busy_pct` | disk busy time (maximum over disks), 0-100 |
+| `disk_queue` | sum of disk queue lengths |
+| `disk_read_kbps`, `disk_write_kbps` | disk read and write, KB/s |
 
-`process-*.csv` (до `top + 1` строк на замер):
+`process-*.csv` (up to `top + 1` rows per sample):
 
-| Колонка | Смысл |
+| Column | Meaning |
 |---|---|
-| `ts_ms` | время замера (то же, что в `system-*.csv`) |
-| `pid` | идентификатор процесса, `-1` у строки `(other)` |
-| `name` | имя процесса |
-| `procs` | сколько процессов в строке (1, у `(other)` больше) |
-| `cpu_pct` | загрузка CPU, % от **всей машины** (0–100) |
-| `rss_mb` | рабочий набор памяти, МБ |
-| `io_read_kbps`, `io_write_kbps` | чтение и запись процесса, КБ/с |
+| `ts_ms` | sample time (same as in `system-*.csv`) |
+| `pid` | process id, `-1` for the `(other)` row |
+| `name` | process name |
+| `procs` | how many processes the row stands for (1, more for `(other)`) |
+| `cpu_pct` | CPU load as % of the **whole machine** (0-100) |
+| `rss_mb` | working set, MB |
+| `io_read_kbps`, `io_write_kbps` | process reads and writes, KB/s |
 
-Важно: `io_*` — это весь ввод-вывод процесса (файлы, сеть, устройства), а не только диск. Нагрузку на диск смотрите по `system-*.csv`. Процесс `Idle` (PID 0) не записывается: его загрузка — это дополнение до 100% к `cpu_pct` машины.
+Note: `io_*` is all I/O of the process (files, network, devices), not only disk. Use `system-*.csv` for disk load. The `Idle` process (PID 0) is not recorded: its load is the complement to 100% of the machine `cpu_pct`.
 
-## Эпизоды насыщения
+## Saturation episodes
 
-Эпизод — интервал, где ресурс был перегружен. Критерии:
+An episode is an interval where a resource was overloaded. Criteria:
 
-| Ресурс | Условие |
+| Resource | Condition |
 |---|---|
-| CPU | загрузка выше 85% |
-| Память | свободно меньше 10% **или** page-in выше 500/с **или** commit выше 90% лимита |
-| Диск | занят выше 80% **или** очередь не меньше 2 |
+| CPU | load above 85% |
+| Memory | free memory below 10% **or** page-ins above 500/s **or** commit above 90% of the limit |
+| Disk | busy above 80% **or** queue of at least 2 |
 
-Подряд идущие замеры с превышением образуют серию, серии ближе 30 секунд склеиваются, а эпизод считается, если длится не меньше 20 секунд (последний замер минус первый плюс один интервал, то есть два замера подряд при интервале 10 секунд). Более короткие всплески видны на графике красными столбцами, но эпизодами не считаются.
+Consecutive samples over the threshold form a run, runs closer than 30 seconds are merged, and an episode counts if it lasts at least 20 seconds (last sample minus first plus one interval, that is two samples in a row at a 10-second interval). Shorter spikes are visible as red bars on the chart but are not episodes.
 
-## Команда `report`
+## The `report` command
 
 ```bash
-java -jar sysmon.jar report --lang=ru --top=10 --file=report.txt
+java -jar sysmon.jar report --lang=en --top=10 --file=report.txt
 ```
 
-| Параметр | По умолчанию | Смысл |
+| Option | Default | Meaning |
 |---|---|---|
-| `--in=<каталог>` | `~/sysmon-samples` | каталог с CSV-файлами |
-| `--lang=ru\|en` | язык системы | язык отчёта |
-| `--top=10` | 10 | строк в таблицах процессов |
-| `--file=report.txt` | не сохранять | дополнительно сохранить отчёт в UTF-8 |
+| `--in=<dir>` | `~/sysmon-samples` | directory with the CSV files |
+| `--lang=ru\|en` | system language | report language |
+| `--top=10` | 10 | rows in the process tables |
+| `--file=report.txt` | do not save | also save the report as UTF-8 |
 
-Печатает в консоль заголовок записи, таблицу по машине (среднее, 95-й процентиль, максимум), список эпизодов (для каждого: время и главные процессы) и топ процессов по CPU и по памяти. В таблицах процессов чтение и запись показаны отдельными колонками в МБ/с. `--file` удобно приложить к заявке в IT.
+Prints the recording header, a machine table (average, 95th percentile, maximum), the list of episodes (time and main processes for each) and the top processes by CPU and by memory. In the process tables reads and writes are separate columns in MB/s. `--file` is handy to attach to an IT request.
 
-Процессы группируются **по имени** (все `java` или `vivaldi` складываются). CPU, чтение и запись усредняются по всем замерам окна (процесса нет в топе, значит, он вошёл в `(other)`), память — по замерам, где процесс присутствует. «Размах RSS» — разница максимума и минимума памяти процесса в окне, она помогает найти, у кого память выросла.
+Processes are grouped **by name** (all `java` or `vivaldi` are added up). CPU, reads and writes are averaged over all samples of the window (a process missing from the top list was folded into `(other)`), memory is averaged over the samples where the process is present. "RSS swing" is the difference between the maximum and minimum memory of a process in the window; it helps find whose memory grew.
 
-## Команда `ui`
+## The `ui` command
 
 ```bash
-java -jar sysmon.jar ui --lang=ru --theme=dark
+java -jar sysmon.jar ui --lang=en --theme=dark
 ```
 
-| Параметр | По умолчанию | Смысл |
+| Option | Default | Meaning |
 |---|---|---|
-| `--in=<каталог>` | `~/sysmon-samples` | каталог с CSV-файлами |
-| `--lang=ru\|en` | язык системы | язык окна |
-| `--theme=dark\|light` | `dark` | тема оформления |
+| `--in=<dir>` | `~/sysmon-samples` | directory with the CSV files |
+| `--lang=ru\|en` | system language | window language |
+| `--theme=dark\|light` | `dark` | theme |
 
-- **Три полосы** (CPU, память, диск) на всю запись. Высота столбца — утилизация, цвет — насыщение (синий, жёлтый, красный), красные фоновые полосы — эпизоды. Пропуски в записи (сон, остановка) заштрихованы; переключатель «Сжать пропуски» сжимает длинные паузы в узкую штриховку.
-- **Выделение интервала:** протяните мышью по полосам, клик снимает выделение. Всё, что ниже, показывает выбранный интервал. В подсказке полосы диска видны занятость, очередь и скорости чтения и записи.
-- **Строка вывода** описывает интервал словами: пики, пересекающиеся эпизоды, главные процессы по CPU, по чтению и по записи, самое большое изменение памяти. Для всей записи там же указано, сколько времени записано из общего охвата. Это обычный текст; при наведении справа вверху появляется кнопка-иконка «копировать текст».
-- **Список эпизодов** слева: клик выделяет интервал эпизода, а Ctrl-клик и Shift-клик выбирают несколько эпизодов для экспорта (интервал при этом не меняется).
-- **График** топ-5 процессов (по имени) и «прочее» с накоплением. Метрика переключается кнопками «CPU», «Память», «Чтение», «Запись» в заголовке графика (чтение и запись в МБ/с), так видно, какие программы много читают, а какие много пишут. При наведении всплывает подсказка со значениями.
-- **Таблица процессов** за интервал с тепловой подсветкой и сортировкой. Чтение и запись вынесены в отдельные колонки в МБ/с.
-- **Верхняя панель** разделена на группы. Запись: «Начать запись», «Остановить» и состояние REC. Данные: «Открыть папку…», «Обновить», «Живой режим» (перечитывает файлы каждые 15 секунд, не перестраивая окно: сортировка и разделители сохраняются). Вид: «Сжать пропуски». Справа «Экспорт в ZIP…» (недоступна, пока нет данных), переключатель темы (солнце | луна) и языка (RU | EN).
+- **Three strips** (CPU, memory, disk) over the whole recording. Bar height is utilization, bar colour is saturation (blue, yellow, red), red background bands are episodes. Gaps in the recording (sleep, restarts) are hatched; the "Compact gaps" switch squeezes long pauses into a narrow hatched stripe.
+- **Interval selection:** drag across the strips; a click clears the selection. Everything below shows the selected interval. The tooltip of the disk strip shows busy time, queue and read and write speeds.
+- **Verdict line** describes the interval in words: peaks, overlapping episodes, main processes by CPU, by reads and by writes, the biggest memory change. For the whole recording it also says how much time was recorded out of the total span. It is plain text; on hover a small copy icon appears in the top right corner.
+- **Episode list** on the left: a click selects the episode interval, Ctrl-click and Shift-click pick several episodes for export (the interval stays as it is).
+- **Stacked chart** of the top 5 processes (by name) plus "other". The metric is switched with the CPU, Memory, Read, Write buttons in the chart header (read and write in MB/s), so you can see which programs read a lot and which write a lot. A tooltip shows the values on hover.
+- **Process table** for the interval with heat-map shading and sorting. Read and write are separate columns in MB/s.
+- **Toolbar** is split into groups. Recording: "Start recording", "Stop" and the REC state. Data: "Open folder...", "Reload", "Live mode" (re-reads the files every 15 seconds without rebuilding the window: sorting and dividers are kept). View: "Compact gaps". On the right: "Export to ZIP..." (disabled while there is no data), the theme switch (sun | moon) and the language switch (RU | EN).
 
-## Выгрузка эпизодов в zip
+## Exporting episodes to a zip
 
-Чтобы показать коллегам или IT только нужные места, а не весь каталог, используйте кнопку «Экспорт в ZIP…» в окне или команду `export`.
+To show colleagues or IT only the relevant moments instead of the whole directory, use the "Export to ZIP..." button in the window or the `export` command.
 
-Что попадёт в архив. В окне работает правило по порядку:
+What goes into the archive. The window applies these rules in order:
 
-1. эпизоды, выбранные в списке слева (Ctrl-клик и Shift-клик выбирают несколько);
-2. если в списке ничего не выбрано, интервал, выделенный мышью на полосах. Это для «размазанных» тормозов, которые не дотягивают до порогов эпизода (например, диск занят на 75% десять минут подряд);
-3. если нет и его, все эпизоды.
+1. the episodes picked in the list on the left (Ctrl-click and Shift-click pick several);
+2. if nothing is picked in the list, the interval dragged on the strips. This is for "smeared" slowdowns that do not reach the episode thresholds (for example, the disk busy at 75% for ten minutes);
+3. if there is no interval either, all episodes.
 
-Устройство архива:
+Archive layout:
 
 ```text
 sysmon-episodes-20261008-143015.zip
-├── summary.txt                        отчёт по выгруженному (как команда report)
-├── episodes.csv                       что выгружено: папка, ресурс, начало, конец, длительность
-├── episode-1-memory-20-18-57/         эпизод №1, время начала в имени
+├── summary.txt                        report on what was exported (like the report command)
+├── episodes.csv                       what was exported: folder, resource, start, end, duration
+├── episode-1-memory-20-18-57/         episode no. 1, start time in the name
 │   ├── system-export.csv
 │   └── process-export.csv
 ├── episode-2-memory-00-09-45/
 │   └── ...
-└── custom-interval-14-05-46/          вместо папки эпизода, если выгружался выделенный интервал
+└── custom-interval-14-05-46/          instead of an episode folder when a dragged interval was exported
 ```
 
-- В каждую папку добавлено по 60 секунд до и после эпизода: видно состояние системы до просадки и после неё. В окне это константа, в консоли её можно изменить флагом `--pad`.
-- Номера эпизодов хронологические и совпадают с командой `episodes`. Время в именах папок и в `episodes.csv` местное.
-- Имена процессов в архиве остаются как есть. Файлы собираются заново из прочитанных данных, поэтому битые строки в архив не попадают.
-- По умолчанию архив называется `sysmon-episodes-yyyyMMdd-HHmmss.zip` и предлагается в `%USERPROFILE%\sysmon-samples`. После сохранения окно показывает «Архив сохранён» и кнопку «Показать в папке» (проводник с выделенным файлом).
+- Every folder holds 60 seconds before and after the episode, so you see the state of the system before the slowdown and after it. The window uses a constant, the console can change it with `--pad`.
+- Episode numbers are chronological and match the `episodes` command. Times in folder names and in `episodes.csv` are local time.
+- Process names stay as they are. The files are rebuilt from the parsed data, so malformed lines do not end up in the archive.
+- By default the archive is named `sysmon-episodes-yyyyMMdd-HHmmss.zip` and proposed in `%USERPROFILE%\sysmon-samples`. After saving, the window shows "Archive saved" and a "Show in folder" button (Explorer with the file selected).
 
-Как открыть архив: распакуйте его и запустите `java -jar sysmon.jar ui --in=<папка с распакованным>`. Каталог читается вместе с подпапками (корень и два уровня ниже), поэтому все эпизоды открываются в одном окне, а паузы между ними заштрихованы. Замеры с одинаковым временем из разных папок (запасы соседних эпизодов перекрываются) склеиваются в один.
+To open an archive: unzip it and run `java -jar sysmon.jar ui --in=<unpacked folder>`. The directory is read together with its subfolders (the root and two levels below), so all episodes open in one window with the pauses between them hatched. Samples with the same time from different folders (the padding of neighbouring episodes overlaps) are merged into one.
 
-Из консоли:
+From the console:
 
 ```bash
-java -jar sysmon.jar episodes                                    # список эпизодов с номерами
-java -jar sysmon.jar export --episodes=1,3 --out=incident.zip    # выгрузить эпизоды 1 и 3
-java -jar sysmon.jar export                                      # выгрузить все эпизоды
+java -jar sysmon.jar episodes                                    # list of episodes with numbers
+java -jar sysmon.jar export --episodes=1,3 --out=incident.zip    # export episodes 1 and 3
+java -jar sysmon.jar export                                      # export all episodes
 ```
 
-| Параметр `episodes` | По умолчанию | Смысл |
+| `episodes` option | Default | Meaning |
 |---|---|---|
-| `--in=<каталог>` | `~/sysmon-samples` | каталог с CSV-файлами |
-| `--lang=ru\|en` | язык системы | язык вывода |
+| `--in=<dir>` | `~/sysmon-samples` | directory with the CSV files |
+| `--lang=ru\|en` | system language | output language |
 
-| Параметр `export` | По умолчанию | Смысл |
+| `export` option | Default | Meaning |
 |---|---|---|
-| `--in=<каталог>` | `~/sysmon-samples` | каталог с CSV-файлами |
-| `--episodes=all\|1,3` | `all` | номера из списка `episodes` |
-| `--out=<файл.zip>` | `~/sysmon-samples/sysmon-episodes-<дата-время>.zip` | куда сохранить архив |
-| `--pad=60s` | 60s | контекст до и после каждого эпизода (`s`, `m`, `h`, `d`) |
-| `--lang=ru\|en` | язык системы | язык `summary.txt` |
+| `--in=<dir>` | `~/sysmon-samples` | directory with the CSV files |
+| `--episodes=all\|1,3` | `all` | numbers from the `episodes` list |
+| `--out=<file.zip>` | `~/sysmon-samples/sysmon-episodes-<date-time>.zip` | where to save the archive |
+| `--pad=60s` | 60s | context before and after every episode (`s`, `m`, `h`, `d`) |
+| `--lang=ru\|en` | system language | language of `summary.txt` |
 
-Команда `episodes` печатает по строке на эпизод: номер, начало и конец, ресурс, длительность и главные процессы по CPU. Пример формата (значения условные):
+The `episodes` command prints one line per episode: number, start and end, resource, duration and the main processes by CPU. Format example (the values are illustrative):
 
 ```text
-Эпизоды насыщения в C:\Users\user\sysmon-samples: 2
-  1  2026-10-05 20:18:57 - 20:19:48  Память     60 с  idea64 12.9%, MsMpEng 7.5%
-  2  2026-10-06 00:09:45 - 00:13:26  Память    231 с  idea64 11.0%
-Выгрузка: export --episodes=1,3
+Saturation episodes in C:\Users\user\sysmon-samples: 2
+  1  2026-10-05 20:18:57 - 20:19:48  Memory     60 s  idea64 12.9%, MsMpEng 7.5%
+  2  2026-10-06 00:09:45 - 00:13:26  Memory    231 s  idea64 11.0%
+Export: export --episodes=1,3
 ```
 
-Произвольный интервал (не эпизод) выгружается только из окна.
+An arbitrary interval (not an episode) can be exported from the window only.
 
-## Пример находки
+## Example finding
 
-Запись на ноутбуке разработчика: в 20:18–20:20 шла сборка проекта. Окно показало эпизод памяти на 60 секунд: `page-in` до 2145/с, диск занят до 15%, а `MsMpEng` (Microsoft Defender) читал 8–12 МБ/с при 6–9% CPU машины. Это согласуется с проверкой антивирусом файлов, которые пишет сборка. Именно такой аргумент можно приложить к заявке на исключения сканирования для каталогов сборки и кэшей.
+A recording on a developer laptop: a project build ran at 20:18-20:20. The window showed a 60-second memory episode: page-ins up to 2145/s, disk busy up to 15%, and `MsMpEng` (Microsoft Defender) reading 8-12 MB/s at 6-9% of machine CPU. That is consistent with the antivirus scanning files that the build writes. This is exactly the kind of evidence you can attach to a request for scan exclusions for build directories and caches.
 
-## Ограничения
+## Limitations
 
-- Прямого счётчика очереди CPU нет, насыщение CPU приближается высокой загрузкой.
-- Чтение и запись процесса не равны диску (см. выше). Занятость и очередь диска берутся из счётчиков Windows через OSHI и на конкретной машине их стоит проверить нагрузкой (скопировать большой файл и посмотреть, выросли ли `disk_busy_pct` и `disk_queue`).
-- Мелкие процессы попадают в `(other)`: если нужен более подробный взгляд, увеличьте `--top`.
-- `report` и `ui` читают весь каталог в память. Для записи на несколько суток это нормально, для сотен мегабайт понадобится потоковая загрузка. Подпапки читаются на два уровня вглубь от выбранного каталога.
-- Рабочий набор памяти (`rss_mb`) включает общие страницы, сумма по процессам может превышать занятую физическую память.
-- На Java 17 русский текст команды `report` в консоли Windows может отображаться неверно: используйте `--file=report.txt` (UTF-8) или `--lang=en`.
-- macOS и Linux не проверялись: часть метрик (например, занятость диска и подкачка) там может быть недоступна. Значок в трее Windows 11 может оказаться в скрытой области (стрелка «^»), показ уведомлений зависит от настроек системы.
+- There is no direct CPU run-queue counter; CPU saturation is approximated by high load.
+- Process reads and writes are not disk I/O (see above). Disk busy time and queue come from Windows counters through OSHI; on a given machine it is worth checking them under load (copy a large file and see whether `disk_busy_pct` and `disk_queue` rise).
+- Small processes end up in `(other)`: raise `--top` for a more detailed view.
+- `report` and `ui` read the whole directory into memory. That is fine for several days of recording; hundreds of megabytes would need streaming loading. Subfolders are read two levels deep below the chosen directory.
+- The working set (`rss_mb`) includes shared pages, so the sum over processes can exceed the physical memory in use.
+- On Java 17 the Cyrillic console output of `report` may be garbled on Windows: use `--file=report.txt` (UTF-8) or `--lang=en`.
+- macOS and Linux are untested: some metrics (for example disk busy time and paging) may be unavailable there. The tray icon on Windows 11 may be in the hidden area (the "^" arrow), and notifications depend on system settings.
 
-## Анализ CSV в SQL (необязательно)
+## Querying the CSV with SQL (optional)
 
-CSV можно разбирать любым инструментом, который умеет SQL по CSV, например плагином **CSV Query** для Notepad++ (таблица называется `this`, запрос пишется в одну строку, значения хранятся как текст, поэтому используйте `CAST`). Пример: когда была подкачка (файл `system-*.csv`)
+You can analyse the CSV with any tool that runs SQL over CSV, for example the **CSV Query** Notepad++ plugin (the table is called `this`, the query must be a single line, values are stored as text, so use `CAST`). Example: when paging happened (file `system-*.csv`)
 
 ```sql
 SELECT ts_ms, cpu_pct, mem_avail_mb, pages_in_ps, disk_busy_pct FROM this WHERE CAST(pages_in_ps AS REAL) > 500 ORDER BY ts_ms
@@ -235,25 +235,25 @@ SELECT ts_ms, cpu_pct, mem_avail_mb, pages_in_ps, disk_busy_pct FROM this WHERE 
 
 ![system.png](.assets/system.png)
 
-**Сводка по записи.** Показывает, насколько тяжёлой была машина: сколько замеров, средняя и максимальная загрузка CPU, минимум свободной памяти, максимум подкачки и занятости диска. Это быстрый ответ на «было ли вообще что-то серьёзное».
+**Recording summary.** Shows how heavy the machine was: the number of samples, average and maximum CPU load, minimum free memory, maximum paging and disk busy time. A quick answer to "was there anything serious at all".
 
 ```sql
 SELECT COUNT(*) AS samples, ROUND(AVG(CAST(cpu_pct AS REAL)),1) AS avg_cpu, ROUND(MAX(CAST(cpu_pct AS REAL)),1) AS max_cpu, ROUND(MIN(CAST(mem_avail_mb AS REAL)),0) AS min_free_mb, ROUND(MAX(CAST(pages_in_ps AS REAL)),0) AS max_pages_in, ROUND(MAX(CAST(disk_busy_pct AS REAL)),1) AS max_disk_busy FROM this
 ```
 
-**Моменты нехватки памяти.** Строки, где подкачка выше 500 страниц в секунду (порог памяти из эпизодов). Идущие подряд строки — это один эпизод, а время помогает найти его в окне или в `process-*.csv`.
+**Moments of memory shortage.** Rows where paging is above 500 pages per second (the memory threshold used for episodes). Consecutive rows form one episode, and the time helps you find it in the window or in `process-*.csv`.
 
 ```sql
 SELECT datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') AS time, ROUND(CAST(pages_in_ps AS REAL),0) AS pages_in, mem_avail_mb, ROUND(CAST(disk_busy_pct AS REAL),1) AS disk_busy, ROUND(CAST(cpu_pct AS REAL),1) AS cpu FROM this WHERE CAST(pages_in_ps AS REAL) > 500 ORDER BY CAST(ts_ms AS INTEGER)
 ```
 
-**Моменты нагрузки на диск.** Замеры, где диск занят больше чем на 50% или очередь не меньше 1, со скоростью чтения и записи (в КБ/с, как в файле). Это одновременно проверка счётчиков диска: если во время копирования большого файла здесь нет ни одной строки, счётчик на этой машине, скорее всего, не работает.
+**Moments of disk load.** Samples where the disk is busy more than 50% or the queue is at least 1, with read and write speed (in KB/s, as in the file). It is also a check of the disk counters: if you copy a large file and there is not a single row here, the counter on this machine most likely does not work.
 
 ```sql
 SELECT datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') AS time, ROUND(CAST(disk_busy_pct AS REAL),1) AS busy, disk_queue, ROUND(CAST(disk_read_kbps AS REAL),0) AS read_kbps, ROUND(CAST(disk_write_kbps AS REAL),0) AS write_kbps FROM this WHERE CAST(disk_busy_pct AS REAL) > 50 OR CAST(disk_queue AS REAL) >= 1 ORDER BY CAST(ts_ms AS INTEGER)
 ```
 
-Пример: средняя нагрузка CPU по имени процесса на всей записи (файл `process-*.csv`)
+Example: average CPU load per process name over the whole recording (file `process-*.csv`)
 
 ```sql
 SELECT name, ROUND(SUM(CAST(cpu_pct AS REAL)) / (SELECT COUNT(DISTINCT ts_ms) FROM this), 2) AS avg_cpu FROM this GROUP BY name ORDER BY avg_cpu DESC LIMIT 20
@@ -261,25 +261,25 @@ SELECT name, ROUND(SUM(CAST(cpu_pct AS REAL)) / (SELECT COUNT(DISTINCT ts_ms) FR
 
 ![process.png](.assets/process.png)
 
-**Кто больше всех читает и пишет.** Средние скорости чтения и записи процесса в МБ/с по всей записи, отдельными колонками. Делится на число всех замеров, а не только тех, где процесс попал в топ, поэтому редкие процессы не завышаются. Напоминание: это весь ввод-вывод процесса, а не только диск.
+**Who reads and writes the most.** Average process read and write speeds in MB/s over the whole recording, as separate columns. It is divided by the number of all samples, not only those where the process made it into the top list, so rare processes are not inflated. Reminder: this is all I/O of the process, not only disk.
 
 ```sql
 SELECT name, ROUND(SUM(CAST(io_read_kbps AS REAL)) / 1024 / (SELECT COUNT(DISTINCT ts_ms) FROM this), 2) AS avg_read_mbps, ROUND(SUM(CAST(io_write_kbps AS REAL)) / 1024 / (SELECT COUNT(DISTINCT ts_ms) FROM this), 2) AS avg_write_mbps FROM this GROUP BY name ORDER BY avg_read_mbps + avg_write_mbps DESC LIMIT 20
 ```
 
-**Память по имени процесса и её рост.** Внутренний запрос сначала складывает память всех процессов с одним именем в каждом замере (все вкладки vivaldi, все java), внешний считает среднее, максимум и размах (swing_mb) по замерам. Большой размах означает, что память процесса заметно росла или падала, и это подсказка, кто «раздувается».
+**Memory per process name and its growth.** The inner query first adds up the memory of all processes with the same name in every sample (all `vivaldi` tabs, all `java`), the outer one computes the average, maximum and swing (`swing_mb`) across samples. A large swing means the memory of a process grew or dropped noticeably, a hint of who is "inflating".
 
 ```sql
 SELECT name, ROUND(AVG(mem),0) AS avg_mb, ROUND(MAX(mem),0) AS max_mb, ROUND(MAX(mem)-MIN(mem),0) AS swing_mb FROM (SELECT ts_ms, name, SUM(CAST(rss_mb AS REAL)) AS mem FROM this GROUP BY ts_ms, name) GROUP BY name ORDER BY avg_mb DESC LIMIT 20
 ```
 
-**Кто работал в выбранные минуты.** Подставьте начало и конец интервала (местное время) из предыдущих запросов или из эпизода в окне. Результат: средний CPU и скорости чтения и записи в МБ/с по процессам за этот период, то есть то же, что показывает таблица в окне, но в SQL. Время несколько раз повторяется, потому что делитель должен считаться по всем замерам окна.
+**Who was running during the chosen minutes.** Substitute the start and end of the interval (local time) taken from the previous queries or from an episode in the window. The result is the average CPU and the read and write speeds in MB/s per process for that period, that is, what the table in the window shows, but in SQL. The time appears several times because the divisor must be counted over all samples of the interval.
 
 ```sql
 SELECT name, ROUND(SUM(CAST(cpu_pct AS REAL)) / (SELECT COUNT(DISTINCT ts_ms) FROM this WHERE datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') BETWEEN '2026-10-05 20:18:57' AND '2026-10-05 20:19:48'), 2) AS avg_cpu, ROUND(SUM(CAST(io_read_kbps AS REAL)) / 1024 / (SELECT COUNT(DISTINCT ts_ms) FROM this WHERE datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') BETWEEN '2026-10-05 20:18:57' AND '2026-10-05 20:19:48'), 2) AS avg_read_mbps, ROUND(SUM(CAST(io_write_kbps AS REAL)) / 1024 / (SELECT COUNT(DISTINCT ts_ms) FROM this WHERE datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') BETWEEN '2026-10-05 20:18:57' AND '2026-10-05 20:19:48'), 2) AS avg_write_mbps FROM this WHERE datetime(CAST(ts_ms AS INTEGER)/1000,'unixepoch','localtime') BETWEEN '2026-10-05 20:18:57' AND '2026-10-05 20:19:48' GROUP BY name ORDER BY avg_cpu DESC LIMIT 10
 ```
 
-## Структура проекта
+## Project layout
 
 ```text
 sysmon/
@@ -287,22 +287,22 @@ sysmon/
 ├── settings.gradle
 └── src/
     ├── main/java/ru/mcs/sysmon/
-    │   ├── cli/        Main, record, report, episodes, export (Exporter), ui, разбор аргументов, язык
-    │   ├── collector/  Sampler (OSHI), отбор топ-N
+    │   ├── cli/        Main, record, report, episodes, export (Exporter), ui, argument parsing, language
+    │   ├── collector/  Sampler (OSHI), top-N selection
     │   ├── model/      SystemSample, ProcessSample, Sample
-    │   ├── recording/  RecordingSession: запись в фоновом потоке (консоль и окно)
-    │   ├── storage/    запись CSV с ротацией и лимитом места
-    │   ├── analysis/   загрузка записи, эпизоды насыщения, агрегация по имени
-    │   └── ui/         окно Swing + FlatLaf, графики на Java2D, иконки, трей, диалог записи
+    │   ├── recording/  RecordingSession: recording on a background thread (console and window)
+    │   ├── storage/    CSV writer with rotation and a disk quota
+    │   ├── analysis/   recording loader, saturation episodes, per-name aggregation
+    │   └── ui/         Swing + FlatLaf window, Java2D charts, icons, tray, recording dialog
     └── test/
-        ├── java/...    тесты ротации, топ-N, эпизодов, записи, отчёта, экспорта и окна
-        └── resources/sample/  реальная запись для тестов
+        ├── java/...    tests for rotation, top-N, episodes, recording, report, export and window
+        └── resources/sample/  a real recording used by the tests
 ```
 
-Тесты: `./gradlew test`. Графические компоненты проверяются без экрана (отрисовка в изображение), внешний вид окна проверяется глазами.
+Tests: `./gradlew test`. The chart components are checked headless (rendered into an image); the look of the window is checked by eye.
 
-## Лицензия
+## License
 
-sysmon распространяется по лицензии [MIT](LICENSE): его можно свободно использовать, изменять и распространять при условии сохранения уведомления об авторских правах.
+sysmon is released under the [MIT License](LICENSE): you may use, modify and distribute it freely as long as the copyright notice is kept.
 
-В `jar` входят сторонние библиотеки (OSHI, JNA, FlatLaf, SLF4J API) со своими лицензиями, их список и условия указаны в [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+The jar bundles third-party libraries (OSHI, JNA, FlatLaf, SLF4J API) under their own licenses; they are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
